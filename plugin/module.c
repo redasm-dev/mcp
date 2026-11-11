@@ -1,5 +1,6 @@
 #include "mcp.h"
 #include "session.h"
+#include "table.h"
 #include "tools.h"
 #include <redasm/redasm.h>
 
@@ -36,6 +37,7 @@ static void mcp_module_load(void) {
 }
 
 static void mcp_module_unload(void) {
+    mcp_table_deinit();
     mcp_tools_deinit();
     mcp_deinit();
 }

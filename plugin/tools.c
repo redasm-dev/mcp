@@ -2,6 +2,7 @@
 #include "dsl.h"
 #include "mcp.h"
 #include "session.h"
+#include "table.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -40,10 +41,6 @@ static yyjson_mut_val* tool_open_file(RDContext* ctx, yyjson_val* args,
     if(!mcp_session_is_standalone())
         return mcp_result_error(
             doc, "Opening files is only available in redasm_mcp.");
-
-    if(!mcp_session_settings_valid())
-        return mcp_result_error(
-            doc, "Opening files is disabled: invalid [mcp] settings.");
 
     if(rd_datum_is_empty(
            rd_datum_get_array(rd_settings_global(), "mcp.allowed_dirs")))
@@ -84,17 +81,78 @@ static yyjson_mut_val* tool_open_file(RDContext* ctx, yyjson_val* args,
     return result;
 }
 
-// clang-format off
-MCP_NO_ARGS(status);
-MCP_ARGS(open_file, MCP_REQ_STR("path", "Absolute path of the file to open"));
-// clang-format on
+static yyjson_mut_val* tool_list_segments(RDContext* ctx, yyjson_val* args,
+                                          yyjson_mut_doc* doc) {
+    RD_UNUSED(args);
+
+    static const char* const COLUMNS[] = {"start", "end",  "size",
+                                          "perm",  "name", NULL};
+
+    McpTable t = mcp_table_begin(doc, COLUMNS);
+    mcp_table_set_untrusted(&t);
+
+    RDSegmentSlice segments = rd_get_all_segments(ctx);
+
+    const RDSegment** it;
+    rd_slice_each(it, segments) {
+        const RDSegment* seg = *it;
+        RDSegmentPerm p = rd_segment_get_perm(seg);
+
+        mcp_table_row(&t);
+        mcp_table_address(&t, ctx, rd_segment_get_start(seg));
+        mcp_table_address(&t, ctx, rd_segment_get_end(seg));
+        mcp_table_uint(&t, rd_segment_get_size(seg));
+        mcp_table_fmt(&t, "%c%c%c", (p & RD_SP_R) ? 'r' : '-',
+                      (p & RD_SP_W) ? 'w' : '-', (p & RD_SP_X) ? 'x' : '-');
+        mcp_table_str(&t, rd_segment_get_name(seg));
+    }
+
+    return mcp_table_result(&t, NULL);
+}
+
+static yyjson_mut_val* tool_list_functions(RDContext* ctx, yyjson_val* args,
+                                           yyjson_mut_doc* doc) {
+    McpPage page;
+    const char* err = mcp_page_init(&page, args);
+    if(err) return mcp_result_error(doc, err);
+
+    static const char* const COLUMNS[] = {"address", "name", NULL};
+
+    McpTable t = mcp_table_begin(doc, COLUMNS);
+    mcp_table_set_untrusted(&t);
+
+    RDAddressSlice functions = rd_get_all_functions(ctx);
+
+    const RDAddress* it;
+    rd_slice_each(it, functions) {
+        // rd_get_name's buffer is reused: consume it before the next call
+        const char* name = rd_get_name(ctx, *it);
+        if(!mcp_page_take(&page, name)) continue;
+
+        mcp_table_row(&t);
+        mcp_table_address(&t, ctx, *it);
+        mcp_table_str(&t, name);
+    }
+
+    return mcp_table_result(&t, &page);
+}
 
 // clang-format off
+#define MCP_PAGE_ARGS                                                                   \
+    MCP_OPT_STR("filter", "Only items whose name contains this text (case-insensitive)"), \
+    MCP_OPT_INT("offset", "Index of the first item to return (default 0)"),             \
+    MCP_OPT_INT("limit", "Maximum number of items to return (default 100, max 500)")
+
+MCP_NO_ARGS(status);
+MCP_NO_ARGS(list_segments);
+MCP_ARGS(list_functions, MCP_PAGE_ARGS);
+MCP_ARGS(open_file, MCP_REQ_STR("path", "Absolute path of the file to open"));
+
 static const McpTool MCP_TOOLS[] = {
     MCP_TOOL(status, "Report the open file and analysis state"),
-    MCP_TOOL(open_file, "Open a file for analysis, replacing the current one. "
-                        "Only files inside the configured allowed directories "
-                        "can be opened."),
+    MCP_TOOL(open_file, "Open a file for analysis, replacing the current one. Only files inside the configured allowed directories can be opened."),
+    MCP_CTX_TOOL(list_segments, "List the segments of the open file: address range, size in bytes, permissions and name."),
+    MCP_CTX_TOOL(list_functions, "List the functions found by the analysis, sorted by address. Supports filtering by name and paging."),
 };
 // clang-format on
 
@@ -213,6 +271,7 @@ void mcp_tools_init(void) {
 }
 
 void mcp_tools_deinit(void) {
+    mcp_table_deinit();
     free(mcp_tools_raw);
     mcp_tools_raw = NULL;
 }

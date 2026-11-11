@@ -15,6 +15,7 @@ target_sources(${PROJECT_NAME}
     PRIVATE 
         mcp.c
         session.c
+        table.c
         tools.c
 )
 

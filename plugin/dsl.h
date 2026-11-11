@@ -6,7 +6,8 @@
 typedef struct RDContext RDContext;
 
 typedef enum McpArgType {
-    MCP_ARG_STRING = 1, // 0 terminates the argument list
+    MCP_ARG_INVALID = 0,
+    MCP_ARG_STRING, // 0 terminates the argument list
     MCP_ARG_INT,
     MCP_ARG_BOOL,
 } McpArgType;
