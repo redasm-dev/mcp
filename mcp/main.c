@@ -22,9 +22,7 @@ typedef struct LineVect {
 
 typedef struct McpHost {
     const RDCommandPlugin* mcp;
-    RDContext* context;
     int out; // the saved stdout
-    bool analyzing;
 } McpHost;
 
 static bool write_all(int fd, const char* p, size_t n) {
@@ -47,8 +45,7 @@ static bool handle_line(McpHost* host, const char* line) {
         {.kind = RD_CMDARG_VOID},
     };
 
-    RDCommandValue reply = host->mcp->execute(host->context, args);
-    host->analyzing = true;
+    RDCommandValue reply = host->mcp->execute(NULL, args);
 
     // no reply: it was a notification
     if(reply.kind != RD_CMDARG_STRING || !reply.s || !reply.s[0]) return true;
@@ -114,7 +111,8 @@ static int mcp_run(McpHost* host) {
     RDWorkerStatus status = {0};
 
     for(;;) {
-        if(host->analyzing) host->analyzing = rd_step(host->context, &status);
+        // if(host->analyzing)
+        // host->analyzing = rd_step(host->context, &status);
         int r = poll(&in, 1, -1);
 
         if(r < 0) {
@@ -144,8 +142,8 @@ static int mcp_run(McpHost* host) {
 }
 
 int main(int argc, char* argv[]) {
-    if(argc != 3 || strcmp(argv[1], "--config") != 0) {
-        fputs("usage: redasm_mcp --config <redasm_mcp.json>\n", stderr);
+    if((argc != 3 && argc != 4) || strcmp(argv[1], "--config") != 0) {
+        fputs("usage: redasm_mcp --config <redasm_mcp.toml> [file]\n", stderr);
         return EXIT_FAILURE;
     }
 
@@ -156,24 +154,40 @@ int main(int argc, char* argv[]) {
     int out = dup(STDOUT_FILENO);
     dup2(STDERR_FILENO, STDOUT_FILENO);
 
-    RDInitParams params = {.kb_paths = config.kb_dirs};
+    RDInitParams params = {
+        .kb_paths = config.kb_dirs,
+        .settings_filepath = config.settings ? config.settings : argv[2],
+    };
+
     rd_init(&params);
 
     size_t n = mcp_plugins_load(config.plugin_dirs);
     fprintf(stderr, "[REDasm MCP] loaded %zu plugin(s)\n", n);
 
     int status = EXIT_FAILURE;
+    const RDCommandPlugin* open_file = rd_command_find("mcp.open_file");
 
     McpHost host = {
         .mcp = rd_command_find("mcp"),
         .out = out,
-        .analyzing = true,
     };
 
-    if(host.mcp)
-        status = mcp_run(&host);
-    else
+    if(host.mcp && open_file) {
+        RDCommandValue args[2] = {
+            {.kind = RD_CMDARG_STRING, .s = argc == 4 ? argv[3] : ""},
+            {.kind = RD_CMDARG_VOID},
+        };
+
+        RDCommandValue ok = open_file->execute(NULL, args);
+
+        if(ok.kind == RD_CMDARG_BOOL && ok.b)
+            status = mcp_run(&host);
+        else
+            fputs("[REDasm MCP] cannot start, see the log above\n", stderr);
+    }
+    else {
         fputs("[REDasm MCP] 'mcp' command plugin not found\n", stderr);
+    }
 
     rd_deinit();
     mcp_config_destroy(&config);

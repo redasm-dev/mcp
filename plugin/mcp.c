@@ -1,6 +1,7 @@
 #include "mcp.h"
+#include "session.h"
 #include "tools.h"
-#include <redasm/redasm.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define MCP_PROTOCOL_VERSION "2025-11-25"
@@ -9,136 +10,178 @@
 #define MCP_ERROR_INVALID_REQUEST (-32600)
 #define MCP_ERROR_METHOD_NOT_FOUND (-32601)
 #define MCP_ERROR_INVALID_PARAMS (-32602)
+#define MCP_ERROR_INTERNAL (-32603)
 
-static cJSON* mcp_initialize_obj = NULL;
-static char* mcp_reply = NULL;
+static char* mcp_initialize_raw = NULL; // serialized once in mcp_init()
+static char* mcp_reply = NULL;          // valid until the next execute
 
-static const char* _mcp_send(cJSON* msg) {
-    cJSON_free(mcp_reply);
-
-    mcp_reply = cJSON_PrintUnformatted(msg);
-    cJSON_Delete(msg);
-
-    RD_LOG_DEBUG("send: %.500s", mcp_reply ? mcp_reply : "(null)");
-    return mcp_reply ? mcp_reply : "";
-}
-
-static cJSON* _mcp_result(const char* text, bool is_error) {
-    cJSON* result = cJSON_CreateObject();
-    cJSON* content = cJSON_AddArrayToObject(result, "content");
-
-    cJSON* item = cJSON_CreateObject();
-    cJSON_AddStringToObject(item, "type", "text");
-    cJSON_AddStringToObject(item, "text", text);
-    cJSON_AddItemToArray(content, item);
-
-    cJSON_AddBoolToObject(result, "isError", is_error);
-    return result;
-}
-
-static cJSON* _mcp_message(const cJSON* id) {
-    cJSON* msg = cJSON_CreateObject();
-    cJSON_AddStringToObject(msg, "jsonrpc", "2.0");
-    cJSON_AddItemToObject(msg, "id",
-                          id ? cJSON_Duplicate(id, true) : cJSON_CreateNull());
+static yyjson_mut_val* _mcp_message(yyjson_mut_doc* doc, yyjson_val* id) {
+    yyjson_mut_val* msg = yyjson_mut_obj(doc);
+    yyjson_mut_obj_add_str(doc, msg, "jsonrpc", "2.0");
+    yyjson_mut_obj_add_val(doc, msg, "id",
+                           id ? yyjson_val_mut_copy(doc, id)
+                              : yyjson_mut_null(doc));
     return msg;
 }
 
-static const char* mcp_send_result(const cJSON* id, cJSON* result) {
-    cJSON* msg = _mcp_message(id);
-    cJSON_AddItemToObject(msg, "result", result);
-    return _mcp_send(msg);
+static void _mcp_set_error(yyjson_mut_doc* doc, yyjson_mut_val* msg, int code,
+                           const char* message) {
+    yyjson_mut_val* error = yyjson_mut_obj_add_obj(doc, msg, "error");
+    yyjson_mut_obj_add_int(doc, error, "code", code);
+    yyjson_mut_obj_add_strcpy(doc, error, "message", message);
 }
 
-static const char* _mcp_send_error(const cJSON* id, int code,
-                                   const char* message) {
-    cJSON* msg = _mcp_message(id);
-    cJSON* error = cJSON_AddObjectToObject(msg, "error");
-    cJSON_AddNumberToObject(error, "code", code);
-    cJSON_AddStringToObject(error, "message", message);
-    return _mcp_send(msg);
+static yyjson_mut_val* _mcp_error(yyjson_mut_doc* doc, yyjson_val* id, int code,
+                                  const char* message) {
+    yyjson_mut_val* msg = _mcp_message(doc, id);
+    _mcp_set_error(doc, msg, code, message);
+    return msg;
 }
 
-static const char* _mcp_dispatch(RDContext* ctx, const cJSON* req) {
-    const cJSON* id = cJSON_GetObjectItemCaseSensitive(req, "id");
-    const char* method =
-        cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(req, "method"));
+static yyjson_mut_val* _mcp_result(yyjson_mut_doc* doc, yyjson_val* id,
+                                   yyjson_mut_val* result) {
+    yyjson_mut_val* msg = _mcp_message(doc, id);
+    yyjson_mut_obj_add_val(doc, msg, "result", result);
+    return msg;
+}
 
-    // no 'id' member: a notification never gets a reply
-    if(!id) return "";
+// NULL for notifications, which never get a reply
+static yyjson_mut_val* _mcp_dispatch(RDContext* ctx, yyjson_val* req,
+                                     yyjson_mut_doc* doc) {
+    yyjson_val* id = yyjson_obj_get(req, "id");
+    const char* method = yyjson_get_str(yyjson_obj_get(req, "method"));
+
+    // no 'id' member: a notification
+    if(!id) return NULL;
 
     // 0 is a valid id, so check the type and never the value
-    if((!cJSON_IsNumber(id) && !cJSON_IsString(id)) || !method)
-        return _mcp_send_error(NULL, MCP_ERROR_INVALID_REQUEST,
-                               "Invalid Request");
+    if((!yyjson_is_num(id) && !yyjson_is_str(id)) || !method)
+        return _mcp_error(doc, NULL, MCP_ERROR_INVALID_REQUEST,
+                          "Invalid Request");
 
     if(!strcmp(method, "initialize"))
-        return mcp_send_result(id, cJSON_Duplicate(mcp_initialize_obj, true));
+        return _mcp_result(doc, id, yyjson_mut_raw(doc, mcp_initialize_raw));
 
     if(!strcmp(method, "ping"))
-        return mcp_send_result(id, cJSON_CreateObject());
+        return _mcp_result(doc, id, yyjson_mut_obj(doc));
 
     if(!strcmp(method, "tools/list"))
-        return mcp_send_result(id, mcp_tools_list());
+        return _mcp_result(doc, id, yyjson_mut_raw(doc, mcp_tools_list()));
 
     if(!strcmp(method, "tools/call")) {
-        const cJSON* params = cJSON_GetObjectItemCaseSensitive(req, "params");
-        const cJSON* args =
-            cJSON_GetObjectItemCaseSensitive(params, "arguments");
-        const char* name = cJSON_GetStringValue(
-            cJSON_GetObjectItemCaseSensitive(params, "name"));
+        yyjson_val* params = yyjson_obj_get(req, "params");
+        const char* name = yyjson_get_str(yyjson_obj_get(params, "name"));
+        yyjson_val* args = yyjson_obj_get(params, "arguments");
 
-        cJSON* result = name ? mcp_tools_call(ctx, name, args) : NULL;
+        yyjson_mut_val* result =
+            name ? mcp_tools_call(mcp_session_context(ctx), name, args, doc)
+                 : NULL;
 
-        if(!result) {
-            return _mcp_send_error(id, MCP_ERROR_INVALID_PARAMS,
-                                   "Unknown tool");
-        }
+        if(!result)
+            return _mcp_error(doc, id, MCP_ERROR_INVALID_PARAMS,
+                              "Unknown tool");
 
-        return mcp_send_result(id, result);
+        return _mcp_result(doc, id, result);
     }
 
-    return _mcp_send_error(id, MCP_ERROR_METHOD_NOT_FOUND, "Method not found");
+    return _mcp_error(doc, id, MCP_ERROR_METHOD_NOT_FOUND, "Method not found");
 }
 
-void mcp_init(void) {
-    if(mcp_initialize_obj) return;
+static const char* _mcp_write(yyjson_mut_doc* doc, yyjson_mut_val* msg) {
+    free(mcp_reply);
 
-    mcp_initialize_obj = cJSON_CreateObject();
-    cJSON_AddStringToObject(mcp_initialize_obj, "protocolVersion",
-                            MCP_PROTOCOL_VERSION);
+    // the default flags write minified JSON: on stdio a newline ends a message
+    yyjson_mut_doc_set_root(doc, msg);
+    mcp_reply = yyjson_mut_write(doc, YYJSON_WRITE_NOFLAG, NULL);
 
-    cJSON* caps = cJSON_AddObjectToObject(mcp_initialize_obj, "capabilities");
-    cJSON_AddObjectToObject(caps, "tools");
+    if(!mcp_reply) {
+        // e.g. invalid UTF-8 from the binary: answer anyway, never stay silent
+        yyjson_mut_val* id = yyjson_mut_obj_get(msg, "id");
+        yyjson_mut_val* fallback = yyjson_mut_obj(doc);
+        yyjson_mut_obj_add_str(doc, fallback, "jsonrpc", "2.0");
+        yyjson_mut_obj_add_val(doc, fallback, "id",
+                               id ? yyjson_mut_val_mut_copy(doc, id)
+                                  : yyjson_mut_null(doc));
+        _mcp_set_error(doc, fallback, MCP_ERROR_INTERNAL,
+                       "Reply could not be encoded as valid JSON");
 
-    cJSON* info = cJSON_AddObjectToObject(mcp_initialize_obj, "serverInfo");
-    cJSON_AddStringToObject(info, "name", "redasm");
-    cJSON_AddStringToObject(info, "version", rd_version_string());
+        yyjson_mut_doc_set_root(doc, fallback);
+        mcp_reply = yyjson_mut_write(doc, YYJSON_WRITE_NOFLAG, NULL);
+    }
+
+    if(mcp_session_debug())
+        RD_LOG_DEBUG("send: %.500s", mcp_reply ? mcp_reply : "(null)");
+
+    return mcp_reply ? mcp_reply : "";
 }
-
-void mcp_deinit(void) {
-    cJSON_Delete(mcp_initialize_obj);
-    cJSON_free(mcp_reply);
-    mcp_initialize_obj = NULL;
-    mcp_reply = NULL;
-}
-
-cJSON* mcp_result_text(const char* text) { return _mcp_result(text, false); }
-cJSON* mcp_result_error(const char* text) { return _mcp_result(text, true); }
 
 RDCommandValue mcp_execute(RDContext* ctx, const RDCommandValue* args) {
     const char* line = args[0].s;
-    RD_LOG_DEBUG("recv: %.500s", line);
+    if(mcp_session_debug()) RD_LOG_DEBUG("recv: %.500s", line);
 
-    const char* reply;
-    cJSON* req = cJSON_Parse(line);
+    yyjson_doc* req = yyjson_read(line, strlen(line), YYJSON_READ_NOFLAG);
+    yyjson_val* root = yyjson_doc_get_root(req);
+    yyjson_mut_doc* doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val* msg;
 
     // clang-format off
-    if(cJSON_IsObject(req)) reply = _mcp_dispatch(ctx, req);
-    else if(req) reply = _mcp_send_error(NULL, MCP_ERROR_INVALID_REQUEST, "Invalid Request");
-    else reply = _mcp_send_error(NULL, MCP_ERROR_PARSE, "Parse error");
+    if(yyjson_is_obj(root)) msg = _mcp_dispatch(ctx, root, doc);
+    else if(req) msg = _mcp_error(doc, NULL, MCP_ERROR_INVALID_REQUEST, "Invalid Request");
+    else msg = _mcp_error(doc, NULL, MCP_ERROR_PARSE, "Parse error");
     // clang-format on
 
-    cJSON_Delete(req);
+    // strings from 'req' are referenced by 'doc', write before freeing it
+    const char* reply = msg ? _mcp_write(doc, msg) : "";
+
+    yyjson_mut_doc_free(doc);
+    yyjson_doc_free(req);
     return (RDCommandValue){.kind = RD_CMDARG_STRING, .s = reply};
+}
+
+static yyjson_mut_val* _mcp_tool_result(yyjson_mut_doc* doc, const char* text,
+                                        bool is_error) {
+    yyjson_mut_val* result = yyjson_mut_obj(doc);
+    yyjson_mut_val* content = yyjson_mut_obj_add_arr(doc, result, "content");
+
+    yyjson_mut_val* item = yyjson_mut_arr_add_obj(doc, content);
+    yyjson_mut_obj_add_str(doc, item, "type", "text");
+    yyjson_mut_obj_add_strcpy(doc, item, "text", text ? text : "");
+
+    yyjson_mut_obj_add_bool(doc, result, "isError", is_error);
+    return result;
+}
+
+yyjson_mut_val* mcp_result_text(yyjson_mut_doc* doc, const char* text) {
+    return _mcp_tool_result(doc, text, false);
+}
+
+yyjson_mut_val* mcp_result_error(yyjson_mut_doc* doc, const char* text) {
+    return _mcp_tool_result(doc, text, true);
+}
+
+void mcp_init(void) {
+    if(mcp_initialize_raw) return;
+
+    yyjson_mut_doc* doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val* r = yyjson_mut_obj(doc);
+    yyjson_mut_doc_set_root(doc, r);
+
+    yyjson_mut_obj_add_str(doc, r, "protocolVersion", MCP_PROTOCOL_VERSION);
+
+    yyjson_mut_val* caps = yyjson_mut_obj_add_obj(doc, r, "capabilities");
+    yyjson_mut_obj_add_obj(doc, caps, "tools");
+
+    yyjson_mut_val* info = yyjson_mut_obj_add_obj(doc, r, "serverInfo");
+    yyjson_mut_obj_add_str(doc, info, "name", "redasm");
+    yyjson_mut_obj_add_strcpy(doc, info, "version", rd_version_string());
+
+    mcp_initialize_raw = yyjson_mut_write(doc, YYJSON_WRITE_NOFLAG, NULL);
+    yyjson_mut_doc_free(doc);
+}
+
+void mcp_deinit(void) {
+    free(mcp_initialize_raw);
+    free(mcp_reply);
+    mcp_initialize_raw = NULL;
+    mcp_reply = NULL;
 }

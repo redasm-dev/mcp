@@ -1,18 +1,24 @@
 #pragma once
 
 #include <stdbool.h>
+#include <yyjson.h>
 
-typedef struct cJSON cJSON; // NOLINT
 typedef struct RDContext RDContext;
+
+typedef enum McpArgType {
+    MCP_ARG_STRING = 1, // 0 terminates the argument list
+    MCP_ARG_INT,
+    MCP_ARG_BOOL,
+} McpArgType;
 
 #define MCP_ARG_(n, t, d, r)                                                   \
     {.name = (n), .type = (t), .description = (d), .required = (r)}
 
-#define MCP_REQ_STR(n, d) MCP_ARG_(n, "string", d, true)
-#define MCP_OPT_STR(n, d) MCP_ARG_(n, "string", d, false)
-#define MCP_REQ_INT(n, d) MCP_ARG_(n, "integer", d, true)
-#define MCP_OPT_INT(n, d) MCP_ARG_(n, "integer", d, false)
-#define MCP_OPT_BOOL(n, d) MCP_ARG_(n, "boolean", d, false)
+#define MCP_REQ_STR(n, d) MCP_ARG_(n, MCP_ARG_STRING, d, true)
+#define MCP_OPT_STR(n, d) MCP_ARG_(n, MCP_ARG_STRING, d, false)
+#define MCP_REQ_INT(n, d) MCP_ARG_(n, MCP_ARG_INT, d, true)
+#define MCP_OPT_INT(n, d) MCP_ARG_(n, MCP_ARG_INT, d, false)
+#define MCP_OPT_BOOL(n, d) MCP_ARG_(n, MCP_ARG_BOOL, d, false)
 
 #define MCP_ARGS(tool, ...)                                                    \
     static const McpArg tool##_args[] = {__VA_ARGS__, {0}}
@@ -32,15 +38,21 @@ typedef struct RDContext RDContext;
 
 typedef struct McpArg {
     const char* name;
-    const char* type; // "string", "integer", "boolean"
+    McpArgType type;
     const char* description;
     bool required;
 } McpArg;
 
+// 'args' is already validated against the tool's McpArg list: every required
+// argument is present and every present argument has the declared type.
+// The result is built inside 'doc', use mcp_result_text/error.
+typedef yyjson_mut_val* (*McpToolRun)(RDContext* ctx, yyjson_val* args,
+                                      yyjson_mut_doc* doc);
+
 typedef struct McpTool {
     const char* name;
     const char* description;
-    const McpArg* args; // terminated by {NULL}
+    const McpArg* args; // terminated by {0}
     bool needs_context;
-    cJSON* (*run)(RDContext* ctx, const cJSON* args);
+    McpToolRun run;
 } McpTool;

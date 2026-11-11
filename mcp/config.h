@@ -3,7 +3,7 @@
 #include <redasm/redasm.h>
 
 typedef struct McpConfig {
-    RDSettings* config;
+    RDDatumDoc* config;
     const char** plugin_dirs; // NULL terminated
     const char** kb_dirs;     // NULL terminated
     const char* settings;

@@ -14,11 +14,12 @@ add_library(${PROJECT_NAME} SHARED module.c)
 target_sources(${PROJECT_NAME}
     PRIVATE 
         mcp.c
+        session.c
         tools.c
 )
 
 target_link_libraries(${PROJECT_NAME} 
     PRIVATE 
         redasm::redasm
-        cJSON
+        yyjson
 )
