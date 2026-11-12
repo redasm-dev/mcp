@@ -8,6 +8,7 @@
 
 MCP_ENUM(external_kind, RDExternalKind, EXTERNAL_KINDS);
 MCP_ENUM(symbol_kind, u32, SYMBOL_KINDS);
+MCP_ENUM(xref_kind, u32, XREF_KINDS);
 
 static bool _mcp_spec_is_allowed(const char* resolved) {
     const RDDatum* dirs =
@@ -25,6 +26,21 @@ static bool _mcp_spec_is_allowed(const char* resolved) {
 static const char* _mcp_spec_format_address(const RDContext* ctx, RDAddress a) {
     int width = (int)rd_get_ptr_size(ctx) * 2;
     return rd_format("0x%0*" PRIX64, width > 0 ? width : 8, (u64)a);
+}
+
+// the 'type' column: single kind bits have a name in XREF_KINDS
+static const char* _mcp_spec_xref_type(RDXRefType type) {
+    u32 bit = XR_BIT(type);
+    return MCP_GET_ENUM_NAME(xref_kind, bit);
+}
+
+// the name of the function containing 'address', NULL outside functions
+static const char* _mcp_spec_function_of(RDContext* ctx, RDAddress address,
+                                         RDAddress* entry) {
+    if(!rd_function_find(ctx, address, entry)) return NULL;
+
+    const char* name = rd_get_name(ctx, *entry);
+    return (name && *name) ? name : NULL;
 }
 
 // accepts "0x401000", a name such as "main" or "sub_401000", or plain hex
@@ -67,6 +83,73 @@ static void _mcp_describe_address(RDContext* ctx, RDAddress address,
     else
         rd_scratch_putf(out, ", imported from %s",
                         ext.module ? ext.module : "?");
+}
+
+static void _mcp_spec_table_location(McpTable* t, const char* fname,
+                                     RDAddress entry, RDAddress address) {
+    if(!fname)
+        mcp_table_str(t, NULL);
+    else if(entry == address)
+        mcp_table_str(t, fname);
+    else
+        mcp_table_fmt(t, "%s+0x%" PRIX64, fname, (u64)(address - entry));
+}
+
+static yyjson_mut_val* _mcp_spec_get_calls(RDContext* ctx, yyjson_val* args,
+                                           yyjson_mut_doc* doc, bool callees) {
+    const char* s = yyjson_get_str(yyjson_obj_get(args, "address"));
+    RDAddress address, entry;
+
+    if(!_mcp_spec_parse_address(ctx, s, &address)) {
+        return mcp_result_error(doc, "Not an address or a known name: use hex "
+                                     "like 0x401000 or a symbol name.");
+    }
+
+    if(!rd_function_find(ctx, address, &entry))
+        return mcp_result_error(doc, "This address is not inside a function.");
+
+    McpPage page;
+    const char* err = mcp_page_init(&page, args);
+    if(err) return mcp_result_error(doc, err);
+
+    static const char* const CALLEES[] = {"from", "call", "to", "name", NULL};
+    static const char* const CALLERS[] = {"from", "call", "function", NULL};
+
+    McpTable t = mcp_table_begin(doc, callees ? CALLEES : CALLERS);
+    mcp_table_set_untrusted(&t);
+
+    RDCallSlice calls =
+        callees ? rd_get_callees(ctx, address) : rd_get_callers(ctx, address);
+
+    const RDCall* call;
+    rd_slice_each(call, calls) {
+        const char* kind = call->type == RD_CR_CALL ? "direct" : "indirect";
+
+        if(callees) {
+            const char* name = rd_get_name(ctx, call->target);
+            if(name && !*name) name = NULL;
+            if(!mcp_page_take(&page, name)) continue;
+
+            mcp_table_row(&t);
+            mcp_table_address(&t, ctx, call->address);
+            mcp_table_str(&t, kind);
+            mcp_table_address(&t, ctx, call->target);
+            mcp_table_str(&t, name);
+        }
+        else {
+            RDAddress caller;
+            const char* fname =
+                _mcp_spec_function_of(ctx, call->address, &caller);
+            if(!mcp_page_take(&page, fname)) continue;
+
+            mcp_table_row(&t);
+            mcp_table_address(&t, ctx, call->address);
+            mcp_table_str(&t, kind);
+            _mcp_spec_table_location(&t, fname, caller, call->address);
+        }
+    }
+
+    return mcp_table_result(&t, &page);
 }
 
 yyjson_mut_val* mcp_spec_status(RDContext* ctx, yyjson_val* args,
@@ -359,4 +442,98 @@ yyjson_mut_val* mcp_spec_get_address(RDContext* ctx, yyjson_val* args,
         mcp_result_text_n(doc, rd_scratch_data(out), rd_scratch_length(out));
     rd_scratch_destroy(out);
     return r;
+}
+
+yyjson_mut_val* mcp_spec_get_xrefs_to(RDContext* ctx, yyjson_val* args,
+                                      yyjson_mut_doc* doc) {
+    const char* s = yyjson_get_str(yyjson_obj_get(args, "address"));
+    RDAddress address;
+
+    if(!_mcp_spec_parse_address(ctx, s, &address)) {
+        return mcp_result_error(doc, "Not an address or a known name: use hex "
+                                     "like 0x401000 or a symbol name.");
+    }
+
+    McpPage page;
+    const char* err = mcp_page_init(&page, args);
+    if(err) return mcp_result_error(doc, err);
+
+    u32 mask = MCP_GET_ENUM_VAL(args, "kind", xref_kind);
+
+    static const char* const COLUMNS[] = {"from", "type", "function", NULL};
+
+    McpTable t = mcp_table_begin(doc, COLUMNS);
+    mcp_table_set_untrusted(&t);
+
+    // the slice lives in the context until the next rd_get_xrefs_to():
+    // rd_function_find and rd_get_name below don't touch it
+    RDXRefSlice refs = rd_get_xrefs_to(ctx, address, RD_XR_NONE);
+
+    const RDXRef* xr;
+    rd_slice_each(xr, refs) {
+        if(!(mask & XR_BIT(xr->type))) continue;
+
+        RDAddress entry;
+        const char* fname = _mcp_spec_function_of(ctx, xr->address, &entry);
+        if(!mcp_page_take(&page, fname)) continue;
+
+        mcp_table_row(&t);
+        mcp_table_address(&t, ctx, xr->address);
+        mcp_table_str(&t, _mcp_spec_xref_type(xr->type));
+
+        _mcp_spec_table_location(&t, fname, entry, xr->address);
+    }
+
+    return mcp_table_result(&t, &page);
+}
+
+yyjson_mut_val* mcp_spec_get_xrefs_from(RDContext* ctx, yyjson_val* args,
+                                        yyjson_mut_doc* doc) {
+    const char* s = yyjson_get_str(yyjson_obj_get(args, "address"));
+    RDAddress address;
+
+    if(!_mcp_spec_parse_address(ctx, s, &address)) {
+        return mcp_result_error(doc, "Not an address or a known name: use hex "
+                                     "like 0x401000 or a symbol name.");
+    }
+
+    McpPage page;
+    const char* err = mcp_page_init(&page, args);
+    if(err) return mcp_result_error(doc, err);
+
+    u32 mask = MCP_GET_ENUM_VAL(args, "kind", xref_kind);
+
+    static const char* const COLUMNS[] = {"to", "type", "name", NULL};
+
+    McpTable t = mcp_table_begin(doc, COLUMNS);
+    mcp_table_set_untrusted(&t);
+
+    // same lifetime as in get_xrefs_to, with rd_get_xrefs_from()
+    RDXRefSlice refs = rd_get_xrefs_from(ctx, address, RD_XR_NONE);
+
+    const RDXRef* xr;
+    rd_slice_each(xr, refs) {
+        if(!(mask & XR_BIT(xr->type))) continue;
+
+        const char* name = rd_get_name(ctx, xr->address);
+        if(name && !*name) name = NULL;
+        if(!mcp_page_take(&page, name)) continue;
+
+        mcp_table_row(&t);
+        mcp_table_address(&t, ctx, xr->address);
+        mcp_table_str(&t, _mcp_spec_xref_type(xr->type));
+        mcp_table_str(&t, name);
+    }
+
+    return mcp_table_result(&t, &page);
+}
+
+yyjson_mut_val* mcp_spec_get_callees(RDContext* ctx, yyjson_val* args,
+                                     yyjson_mut_doc* doc) {
+    return _mcp_spec_get_calls(ctx, args, doc, true);
+}
+
+yyjson_mut_val* mcp_spec_get_callers(RDContext* ctx, yyjson_val* args,
+                                     yyjson_mut_doc* doc) {
+    return _mcp_spec_get_calls(ctx, args, doc, false);
 }

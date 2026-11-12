@@ -4,6 +4,8 @@
 #include <redasm/redasm.h>
 #include <yyjson.h>
 
+// clang-format off
+
 // the first entry is the default
 #define EXTERNAL_KINDS(X)                                                      \
     X(all, RD_EXT_NONE)                                                        \
@@ -26,7 +28,24 @@ MCP_ENUM_DECL(external_kind, RDExternalKind);
 
 MCP_ENUM_DECL(symbol_kind, u32);
 
-// clang-format off
+#define XR_BIT(t) (1U << (t))
+#define XR_CODE (XR_BIT(RD_CR_CALL) | XR_BIT(RD_CR_JUMP))
+#define XR_DATA (XR_BIT(RD_DR_READ) | XR_BIT(RD_DR_WRITE) | XR_BIT(RD_DR_ADDRESS))
+
+// the first entry is the default.
+// Single bits double as the names in the 'type' column.
+#define XREF_KINDS(X)                                                          \
+    X(all, ~0U)                                                                \
+    X(code, XR_CODE)                                                           \
+    X(data, XR_DATA)                                                           \
+    X(call, XR_BIT(RD_CR_CALL))                                                \
+    X(jump, XR_BIT(RD_CR_JUMP))                                                \
+    X(read, XR_BIT(RD_DR_READ))                                                \
+    X(write, XR_BIT(RD_DR_WRITE))                                              \
+    X(address, XR_BIT(RD_DR_ADDRESS))
+
+MCP_ENUM_DECL(xref_kind, u32);
+
 yyjson_mut_val* mcp_spec_status(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
 yyjson_mut_val* mcp_spec_open_file(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
 yyjson_mut_val* mcp_spec_list_segments(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
@@ -36,4 +55,8 @@ yyjson_mut_val* mcp_spec_list_externals(RDContext* ctx, yyjson_val* args, yyjson
 yyjson_mut_val* mcp_spec_list_symbols(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
 yyjson_mut_val* mcp_spec_get_name(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
 yyjson_mut_val* mcp_spec_get_address(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
+yyjson_mut_val* mcp_spec_get_xrefs_to(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
+yyjson_mut_val* mcp_spec_get_xrefs_from(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
+yyjson_mut_val* mcp_spec_get_callees(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
+yyjson_mut_val* mcp_spec_get_callers(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
 // clang-format on
