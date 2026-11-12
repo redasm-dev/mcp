@@ -95,8 +95,8 @@ static void _mcp_spec_table_location(McpTable* t, const char* fname,
         mcp_table_fmt(t, "%s+0x%" PRIX64, fname, (u64)(address - entry));
 }
 
-static yyjson_mut_val* _mcp_spec_get_calls(RDContext* ctx, yyjson_val* args,
-                                           yyjson_mut_doc* doc, bool callees) {
+static yyjson_mut_val* _mcp_spec_list_calls(RDContext* ctx, yyjson_val* args,
+                                            yyjson_mut_doc* doc, bool callees) {
     const char* s = yyjson_get_str(yyjson_obj_get(args, "address"));
     RDAddress address, entry;
 
@@ -444,8 +444,8 @@ yyjson_mut_val* mcp_spec_get_address(RDContext* ctx, yyjson_val* args,
     return r;
 }
 
-yyjson_mut_val* mcp_spec_get_xrefs_to(RDContext* ctx, yyjson_val* args,
-                                      yyjson_mut_doc* doc) {
+yyjson_mut_val* mcp_spec_list_xrefs_to(RDContext* ctx, yyjson_val* args,
+                                       yyjson_mut_doc* doc) {
     const char* s = yyjson_get_str(yyjson_obj_get(args, "address"));
     RDAddress address;
 
@@ -487,8 +487,8 @@ yyjson_mut_val* mcp_spec_get_xrefs_to(RDContext* ctx, yyjson_val* args,
     return mcp_table_result(&t, &page);
 }
 
-yyjson_mut_val* mcp_spec_get_xrefs_from(RDContext* ctx, yyjson_val* args,
-                                        yyjson_mut_doc* doc) {
+yyjson_mut_val* mcp_spec_list_xrefs_from(RDContext* ctx, yyjson_val* args,
+                                         yyjson_mut_doc* doc) {
     const char* s = yyjson_get_str(yyjson_obj_get(args, "address"));
     RDAddress address;
 
@@ -528,12 +528,12 @@ yyjson_mut_val* mcp_spec_get_xrefs_from(RDContext* ctx, yyjson_val* args,
     return mcp_table_result(&t, &page);
 }
 
-yyjson_mut_val* mcp_spec_get_callees(RDContext* ctx, yyjson_val* args,
-                                     yyjson_mut_doc* doc) {
-    return _mcp_spec_get_calls(ctx, args, doc, true);
+yyjson_mut_val* mcp_spec_list_callees(RDContext* ctx, yyjson_val* args,
+                                      yyjson_mut_doc* doc) {
+    return _mcp_spec_list_calls(ctx, args, doc, true);
 }
 
-yyjson_mut_val* mcp_spec_get_callers(RDContext* ctx, yyjson_val* args,
-                                     yyjson_mut_doc* doc) {
-    return _mcp_spec_get_calls(ctx, args, doc, false);
+yyjson_mut_val* mcp_spec_list_callers(RDContext* ctx, yyjson_val* args,
+                                      yyjson_mut_doc* doc) {
+    return _mcp_spec_list_calls(ctx, args, doc, false);
 }

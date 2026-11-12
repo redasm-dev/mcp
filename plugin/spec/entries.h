@@ -53,10 +53,10 @@ yyjson_mut_val* mcp_spec_list_functions(RDContext* ctx, yyjson_val* args, yyjson
 yyjson_mut_val* mcp_spec_list_mappings(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
 yyjson_mut_val* mcp_spec_list_externals(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
 yyjson_mut_val* mcp_spec_list_symbols(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
+yyjson_mut_val* mcp_spec_list_xrefs_to(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
+yyjson_mut_val* mcp_spec_list_xrefs_from(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
+yyjson_mut_val* mcp_spec_list_callees(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
+yyjson_mut_val* mcp_spec_list_callers(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
 yyjson_mut_val* mcp_spec_get_name(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
 yyjson_mut_val* mcp_spec_get_address(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
-yyjson_mut_val* mcp_spec_get_xrefs_to(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
-yyjson_mut_val* mcp_spec_get_xrefs_from(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
-yyjson_mut_val* mcp_spec_get_callees(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
-yyjson_mut_val* mcp_spec_get_callers(RDContext* ctx, yyjson_val* args, yyjson_mut_doc* doc);
 // clang-format on
