@@ -1,5 +1,6 @@
 #pragma once
 
+#include <redasm/redasm.h>
 #include <stdbool.h>
 #include <yyjson.h>
 
@@ -12,6 +13,20 @@ typedef enum McpArgType {
     MCP_ARG_BOOL,
 } McpArgType;
 
+#define MCP_ENUM_NAME_X_(n, v) #n,
+#define MCP_ENUM_VALUE_X_(n, v) v,
+
+// The first entry of an enum is its default, used when the argument is missing.
+//   MCP_ENUM_DECL goes in a header: def.c needs <name>_names for the schema,
+//   MCP_ENUM goes in the one .c that defines it.
+#define MCP_ENUM_DECL(name, type)                                              \
+    extern const char* const name##_names[];                                   \
+    extern const type name##_values[]
+
+#define MCP_ENUM(name, type, LIST)                                             \
+    const char* const name##_names[] = {LIST(MCP_ENUM_NAME_X_) NULL};          \
+    const type name##_values[] = {LIST(MCP_ENUM_VALUE_X_)}
+
 #define MCP_ARG_(n, t, d, r)                                                   \
     {.name = (n), .type = (t), .description = (d), .required = (r)}
 
@@ -20,6 +35,24 @@ typedef enum McpArgType {
 #define MCP_REQ_INT(n, d) MCP_ARG_(n, MCP_ARG_INT, d, true)
 #define MCP_OPT_INT(n, d) MCP_ARG_(n, MCP_ARG_INT, d, false)
 #define MCP_OPT_BOOL(n, d) MCP_ARG_(n, MCP_ARG_BOOL, d, false)
+
+// a string restricted to the names of MCP_ENUM 'e'
+#define MCP_OPT_ENUM(n, e, d)                                                  \
+    {                                                                          \
+        .name = (n),                                                           \
+        .type = MCP_ARG_STRING,                                                \
+        .description = (d),                                                    \
+        .values = e##_names,                                                   \
+    }
+
+#define MCP_REQ_ENUM(n, e, d)                                                  \
+    {                                                                          \
+        .name = (n),                                                           \
+        .type = MCP_ARG_STRING,                                                \
+        .description = (d),                                                    \
+        .required = true,                                                      \
+        .values = e##_names,                                                   \
+    }
 
 #define MCP_ARGS(tool, ...)                                                    \
     static const McpArg tool##_args[] = {__VA_ARGS__, {0}}
@@ -31,7 +64,7 @@ typedef enum McpArgType {
         .description = (d),                                                    \
         .args = fn##_args,                                                     \
         .needs_context = (ctx),                                                \
-        .run = tool_##fn,                                                      \
+        .run = mcp_spec_##fn,                                                  \
     }
 
 #define MCP_TOOL(fn, d) MCP_TOOL_(fn, d, false)
@@ -42,6 +75,7 @@ typedef struct McpArg {
     McpArgType type;
     const char* description;
     bool required;
+    const char* const* values; // MCP_ARG_STRING only, NULL for any
 } McpArg;
 
 // 'args' is already validated against the tool's McpArg list: every required
@@ -57,3 +91,6 @@ typedef struct McpTool {
     bool needs_context;
     McpToolRun run;
 } McpTool;
+
+extern const McpTool MCP_TOOLS[];
+extern const usize MCP_TOOLS_COUNT;

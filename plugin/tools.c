@@ -1,160 +1,7 @@
 #include "tools.h"
-#include "dsl.h"
 #include "mcp.h"
-#include "session.h"
-#include "table.h"
-#include <stdlib.h>
+#include "spec/def.h"
 #include <string.h>
-
-static bool _mcp_is_allowed(const char* resolved) {
-    const RDDatum* dirs =
-        rd_datum_get_array(rd_settings_global(), "mcp.allowed_dirs");
-
-    const RDDatum* d;
-    rd_datum_each(d, dirs) {
-        const char* dir = rd_datum_to_str(d);
-        if(dir && rd_path_isinside(resolved, dir)) return true;
-    }
-
-    return false;
-}
-
-static yyjson_mut_val* tool_status(RDContext* ctx, yyjson_val* args,
-                                   yyjson_mut_doc* doc) {
-    RD_UNUSED(args);
-    if(!ctx) return mcp_result_text(doc, "No file open.");
-
-    const RDLoaderPlugin* loader = rd_get_loader_plugin(ctx);
-    const RDProcessorPlugin* processor = rd_get_processor_plugin(ctx);
-
-    const char* text =
-        rd_format("File: %s\nLoader: %s\nProcessor: %s", rd_get_file_name(ctx),
-                  loader ? loader->id : "?", processor ? processor->id : "?");
-
-    return mcp_result_text(doc, text);
-}
-
-static yyjson_mut_val* tool_open_file(RDContext* ctx, yyjson_val* args,
-                                      yyjson_mut_doc* doc) {
-    RD_UNUSED(ctx);
-
-    if(!mcp_session_is_standalone())
-        return mcp_result_error(
-            doc, "Opening files is only available in redasm_mcp.");
-
-    if(rd_datum_is_empty(
-           rd_datum_get_array(rd_settings_global(), "mcp.allowed_dirs")))
-        return mcp_result_error(
-            doc, "Opening files is disabled: no allowed_dirs set.");
-
-    // validated: present and a string
-    const char* path = yyjson_get_str(yyjson_obj_get(args, "path"));
-    if(!(*path)) return mcp_result_error(doc, "'path' cannot be empty.");
-
-    // resolve first, then check and open the same resolved path
-    const char* r = rd_path_resolve(path);
-    if(!r) return mcp_result_error(doc, "File not found.");
-
-    char* resolved = rd_strdup(r); // rd_path_resolve's buffer is shared
-    yyjson_mut_val* result;
-
-    if(!rd_path_isfile(resolved)) {
-        result = mcp_result_error(doc, "Not a regular file.");
-    }
-    else if(!_mcp_is_allowed(resolved)) {
-        result =
-            mcp_result_error(doc, "Path is outside the allowed directories.");
-    }
-    else if(!mcp_session_open(resolved)) {
-        result = mcp_result_error(
-            doc, "Cannot open this file, no file is open now.");
-    }
-    else {
-        const char* text = rd_format(
-            "Opened %s, analysis complete. Addresses and names from any "
-            "previous file no longer apply.",
-            rd_path_filename(resolved));
-        result = mcp_result_text(doc, text);
-    }
-
-    rd_free(resolved);
-    return result;
-}
-
-static yyjson_mut_val* tool_list_segments(RDContext* ctx, yyjson_val* args,
-                                          yyjson_mut_doc* doc) {
-    RD_UNUSED(args);
-
-    static const char* const COLUMNS[] = {"start", "end",  "size",
-                                          "perm",  "name", NULL};
-
-    McpTable t = mcp_table_begin(doc, COLUMNS);
-    mcp_table_set_untrusted(&t);
-
-    RDSegmentSlice segments = rd_get_all_segments(ctx);
-
-    const RDSegment** it;
-    rd_slice_each(it, segments) {
-        const RDSegment* seg = *it;
-        RDSegmentPerm p = rd_segment_get_perm(seg);
-
-        mcp_table_row(&t);
-        mcp_table_address(&t, ctx, rd_segment_get_start(seg));
-        mcp_table_address(&t, ctx, rd_segment_get_end(seg));
-        mcp_table_uint(&t, rd_segment_get_size(seg));
-        mcp_table_fmt(&t, "%c%c%c", (p & RD_SP_R) ? 'r' : '-',
-                      (p & RD_SP_W) ? 'w' : '-', (p & RD_SP_X) ? 'x' : '-');
-        mcp_table_str(&t, rd_segment_get_name(seg));
-    }
-
-    return mcp_table_result(&t, NULL);
-}
-
-static yyjson_mut_val* tool_list_functions(RDContext* ctx, yyjson_val* args,
-                                           yyjson_mut_doc* doc) {
-    McpPage page;
-    const char* err = mcp_page_init(&page, args);
-    if(err) return mcp_result_error(doc, err);
-
-    static const char* const COLUMNS[] = {"address", "name", NULL};
-
-    McpTable t = mcp_table_begin(doc, COLUMNS);
-    mcp_table_set_untrusted(&t);
-
-    RDAddressSlice functions = rd_get_all_functions(ctx);
-
-    const RDAddress* it;
-    rd_slice_each(it, functions) {
-        // rd_get_name's buffer is reused: consume it before the next call
-        const char* name = rd_get_name(ctx, *it);
-        if(!mcp_page_take(&page, name)) continue;
-
-        mcp_table_row(&t);
-        mcp_table_address(&t, ctx, *it);
-        mcp_table_str(&t, name);
-    }
-
-    return mcp_table_result(&t, &page);
-}
-
-// clang-format off
-#define MCP_PAGE_ARGS                                                                   \
-    MCP_OPT_STR("filter", "Only items whose name contains this text (case-insensitive)"), \
-    MCP_OPT_INT("offset", "Index of the first item to return (default 0)"),             \
-    MCP_OPT_INT("limit", "Maximum number of items to return (default 100, max 500)")
-
-MCP_NO_ARGS(status);
-MCP_NO_ARGS(list_segments);
-MCP_ARGS(list_functions, MCP_PAGE_ARGS);
-MCP_ARGS(open_file, MCP_REQ_STR("path", "Absolute path of the file to open"));
-
-static const McpTool MCP_TOOLS[] = {
-    MCP_TOOL(status, "Report the open file and analysis state"),
-    MCP_TOOL(open_file, "Open a file for analysis, replacing the current one. Only files inside the configured allowed directories can be opened."),
-    MCP_CTX_TOOL(list_segments, "List the segments of the open file: address range, size in bytes, permissions and name."),
-    MCP_CTX_TOOL(list_functions, "List the functions found by the analysis, sorted by address. Supports filtering by name and paging."),
-};
-// clang-format on
 
 static char* mcp_tools_raw = NULL; // serialized once in mcp_tools_init()
 
@@ -188,6 +35,17 @@ static const McpArg* _mcp_find_arg(const McpArg* args, const char* name) {
     return NULL;
 }
 
+static bool _mcp_enum_find(const char* const* names, const char* s,
+                           usize* idx) {
+    for(usize i = 0; names[i]; i++) {
+        if(strcmp(names[i], s) != 0) continue;
+        if(idx) *idx = i;
+        return true;
+    }
+
+    return false;
+}
+
 // NULL if 'obj' matches 'args', otherwise a message for the model
 static const char* _mcp_validate(const McpArg* args, yyjson_val* obj) {
     // a missing 'arguments' member counts as an empty object
@@ -205,6 +63,18 @@ static const char* _mcp_validate(const McpArg* args, yyjson_val* obj) {
         if(!_mcp_type_matches(a->type, v)) {
             return rd_format("Argument '%s' must be of type %s.", a->name,
                              _mcp_type_name(a->type));
+        }
+
+        if(a->values && !_mcp_enum_find(a->values, yyjson_get_str(v), NULL)) {
+            RDScratchBuffer* buf = rd_scratch_create();
+            rd_scratch_putf(buf, "Argument '%s' must be one of:", a->name);
+
+            for(const char* const* n = a->values; *n; n++)
+                rd_scratch_putf(buf, " %s", *n);
+
+            const char* msg = rd_format("%s.", rd_scratch_data(buf));
+            rd_scratch_destroy(buf);
+            return msg;
         }
     }
 
@@ -235,6 +105,17 @@ static yyjson_mut_val* _mcp_tool_schema(yyjson_mut_doc* doc,
         yyjson_mut_obj_add_str(doc, p, "type", _mcp_type_name(a->type));
         yyjson_mut_obj_add_str(doc, p, "description", a->description);
 
+        if(a->values) {
+            yyjson_mut_val* e = yyjson_mut_obj_add_arr(doc, p, "enum");
+
+            for(const char* const* n = a->values; *n; n++)
+                yyjson_mut_arr_add_str(doc, e, *n);
+
+            // the first entry is used when the argument is missing
+            if(!a->required)
+                yyjson_mut_obj_add_str(doc, p, "default", a->values[0]);
+        }
+
         if(a->required) yyjson_mut_arr_add_str(doc, required, a->name);
     }
 
@@ -256,7 +137,7 @@ void mcp_tools_init(void) {
 
     yyjson_mut_val* list = yyjson_mut_obj_add_arr(doc, root, "tools");
 
-    for(usize i = 0; i < rd_count_of(MCP_TOOLS); i++) {
+    for(usize i = 0; i < MCP_TOOLS_COUNT; i++) {
         const McpTool* tool = &MCP_TOOLS[i];
 
         yyjson_mut_val* t = yyjson_mut_arr_add_obj(doc, list);
@@ -271,7 +152,6 @@ void mcp_tools_init(void) {
 }
 
 void mcp_tools_deinit(void) {
-    mcp_table_deinit();
     free(mcp_tools_raw);
     mcp_tools_raw = NULL;
 }
@@ -282,7 +162,7 @@ const char* mcp_tools_list(void) {
 
 yyjson_mut_val* mcp_tools_call(RDContext* ctx, const char* name,
                                yyjson_val* args, yyjson_mut_doc* doc) {
-    for(usize i = 0; i < rd_count_of(MCP_TOOLS); i++) {
+    for(usize i = 0; i < MCP_TOOLS_COUNT; i++) {
         const McpTool* tool = &MCP_TOOLS[i];
         if(strcmp(tool->name, name) != 0) continue;
 
@@ -294,6 +174,25 @@ yyjson_mut_val* mcp_tools_call(RDContext* ctx, const char* name,
 
         yyjson_mut_val* result = tool->run(ctx, args, doc);
         return result ? result : mcp_result_error(doc, "Internal tool error.");
+    }
+
+    return NULL;
+}
+
+usize mcp_enum_index(yyjson_val* args, const char* key,
+                     const char* const* names) {
+    const char* s = yyjson_get_str(yyjson_obj_get(args, key));
+    usize idx = 0;
+    if(s) _mcp_enum_find(names, s, &idx);
+    return idx;
+}
+
+const char* mcp_enum_name(const char* const* names, const void* values,
+                          usize size, usize n, const void* v) {
+    const char* p = (const char*)values;
+
+    for(usize i = 0; i < n; i++, p += size) {
+        if(!memcmp(p, v, size)) return names[i];
     }
 
     return NULL;

@@ -100,7 +100,8 @@ static const char* _mcp_write(yyjson_mut_doc* doc, yyjson_mut_val* msg) {
         yyjson_mut_val* fallback = yyjson_mut_obj(doc);
         yyjson_mut_obj_add_str(doc, fallback, "jsonrpc", "2.0");
         yyjson_mut_obj_add_val(doc, fallback, "id",
-                               id ? id : yyjson_mut_null(doc));
+                               id ? yyjson_mut_val_mut_copy(doc, id)
+                                  : yyjson_mut_null(doc));
         _mcp_set_error(doc, fallback, MCP_ERROR_INTERNAL,
                        "Reply could not be encoded as valid JSON");
 

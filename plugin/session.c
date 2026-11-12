@@ -70,6 +70,11 @@ RDCommandValue mcp_session_open_file(RDContext* ctx,
                                      const RDCommandValue* args) {
     RD_UNUSED(ctx);
 
+    // only the standalone host calls this, the GUI passes its own context.
+    // Set first: with bad settings the open_file tool must report those, not
+    // "only available in redasm_mcp"
+    mcp_standalone = true;
+
     if(!mcp_settings_valid)
         return (RDCommandValue){.kind = RD_CMDARG_BOOL, .b = false};
 
@@ -80,8 +85,6 @@ RDCommandValue mcp_session_open_file(RDContext* ctx,
         return (RDCommandValue){.kind = RD_CMDARG_BOOL, .b = false};
     }
 
-    // only the standalone host calls this, the GUI passes its own context
-    mcp_standalone = true;
     _mcp_session_destroy();
 
     rd_free(mcp_pending_file);

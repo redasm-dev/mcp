@@ -44,6 +44,7 @@ void mcp_table_str(McpTable* self, const char* s); // NULL is shown as "-"
 void mcp_table_uint(McpTable* self, u64 v);
 void mcp_table_fmt(McpTable* self, const char* fmt, ...) RD_PRINTF_CHECK(2, 3);
 void mcp_table_address(McpTable* self, const RDContext* ctx, RDAddress address);
+void mcp_table_val(McpTable* self, yyjson_mut_val* v);
 
 // the tool result: header, rows and, with 'page', a paging footer
 yyjson_mut_val* mcp_table_result(McpTable* self, const McpPage* page);

@@ -137,6 +137,10 @@ void mcp_table_address(McpTable* self, const RDContext* ctx,
     mcp_table_fmt(self, "0x%0*" PRIX64, width, (u64)address);
 }
 
+void mcp_table_val(McpTable* self, yyjson_mut_val* v) {
+    _mcp_table_add(self, v ? v : yyjson_mut_null(self->doc));
+}
+
 yyjson_mut_val* mcp_table_result(McpTable* self, const McpPage* page) {
     mcp_table_row(self); // pads the last row; the empty row added is dropped
     yyjson_mut_arr_remove_last(self->rows);
