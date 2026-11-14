@@ -30,14 +30,29 @@
       }
     },
     "data_format": {
-      "values": ["byte", "le16", "le32", "le64", "be16", "be32", "be64",
-                 "uleb128", "sleb128", "ptr", "code_ptr", "str"]
+      "values": [
+        "byte",
+        "le16",
+        "le32",
+        "le64",
+        "be16",
+        "be32",
+        "be64",
+        "uleb128",
+        "sleb128",
+        "ptr",
+        "code_ptr",
+        "str"
+      ]
     },
     "comment_placement": {
-      "values": ["inline", "before", "after"]
+      "values": [
+        "inline",
+        "before",
+        "after"
+      ]
     }
   },
-
   "paging": {
     "offset": {
       "type": "integer",
@@ -53,7 +68,6 @@
       "default": 100
     }
   },
-
   "tools": [
     {
       "name": "status",
@@ -65,12 +79,16 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "path": { "type": "string", "description": "Absolute path of the file to open" }
+          "path": {
+            "type": "string",
+            "description": "Absolute path of the file to open"
+          }
         },
-        "required": ["path"]
+        "required": [
+          "path"
+        ]
       }
     },
-
     {
       "name": "list_segments",
       "description": "List the segments of the open file: address range, size in bytes, permissions and name.",
@@ -89,7 +107,10 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "filter": { "type": "string", "description": "Only functions whose name contains this text (case-insensitive)" }
+          "filter": {
+            "type": "string",
+            "description": "Only functions whose name contains this text (case-insensitive)"
+          }
         }
       }
     },
@@ -101,8 +122,16 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "kind": { "type": "string", "x-enum": "external_kind", "default": "all", "description": "Imports, exports or both" },
-          "filter": { "type": "string", "description": "Only symbols whose name contains this text (case-insensitive)" }
+          "kind": {
+            "type": "string",
+            "x-enum": "external_kind",
+            "default": "all",
+            "description": "Imports, exports or both"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Only symbols whose name contains this text (case-insensitive)"
+          }
         }
       }
     },
@@ -114,8 +143,16 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "kind": { "type": "string", "x-enum": "symbol_kind", "default": "all", "description": "Only symbols of this kind: data is typed data such as strings and variables, name is a plain label" },
-          "filter": { "type": "string", "description": "Only symbols whose name contains this text (case-insensitive)" }
+          "kind": {
+            "type": "string",
+            "x-enum": "symbol_kind",
+            "default": "all",
+            "description": "Only symbols of this kind: data is typed data such as strings and variables, name is a plain label"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Only symbols whose name contains this text (case-insensitive)"
+          }
         }
       }
     },
@@ -127,7 +164,10 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "filter": { "type": "string", "description": "Only strings containing this text (case-insensitive)" }
+          "filter": {
+            "type": "string",
+            "description": "Only strings containing this text (case-insensitive)"
+          }
         }
       }
     },
@@ -139,11 +179,13 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "filter": { "type": "string", "description": "Only types whose name contains this text (case-insensitive)" }
+          "filter": {
+            "type": "string",
+            "description": "Only types whose name contains this text (case-insensitive)"
+          }
         }
       }
     },
-
     {
       "name": "get_name",
       "description": "Describe an address: its name, or the function it falls inside, plus its segment and import/export status.",
@@ -151,9 +193,14 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" }
+          "address": {
+            "type": "string",
+            "description": "Hex address like 0x401000, or a symbol name"
+          }
         },
-        "required": ["address"]
+        "required": [
+          "address"
+        ]
       }
     },
     {
@@ -163,62 +210,51 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "name": { "type": "string", "description": "Exact symbol name, e.g. WndProc or sub_401000" }
+          "name": {
+            "type": "string",
+            "description": "Exact symbol name, e.g. WndProc or sub_401000"
+          }
         },
-        "required": ["name"]
+        "required": [
+          "name"
+        ]
       }
     },
-
     {
-
       "name": "get_function",
-
       "description": "Disassemble a whole function, one line per instruction or label, with addresses, resolved names and comments. Numbers carry their radix: 0x hex, 0o octal, 0b binary, bare is decimal. Supports paging by line.",
-
       "x-context": true,
-
       "x-paging": true,
-
       "inputSchema": {
-
         "type": "object",
-
         "properties": {
-
-          "address": { "type": "string", "description": "Any address inside the function, or its name" }
-
+          "address": {
+            "type": "string",
+            "description": "Any address inside the function, or its name"
+          }
         },
-
-        "required": ["address"]
-
+        "required": [
+          "address"
+        ]
       }
-
     },
-
     {
-
       "name": "get_item",
-
       "description": "Show the single item at an address as the listing does: an instruction, or a data item such as a string or a variable, with its size, bytes and the function it's in. An address inside an item shows the whole item.",
-
       "x-context": true,
-
       "inputSchema": {
-
         "type": "object",
-
         "properties": {
-
-          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" }
-
+          "address": {
+            "type": "string",
+            "description": "Hex address like 0x401000, or a symbol name"
+          }
         },
-
-        "required": ["address"]
-
+        "required": [
+          "address"
+        ]
       }
-
     },
-
     {
       "name": "list_xrefs_to",
       "description": "List the places that reference an address (who calls this function, who reads this variable), with the function each one is in. Supports paging.",
@@ -227,11 +263,24 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
-          "kind": { "type": "string", "x-enum": "xref_kind", "default": "all", "description": "Only references of this kind; call finds the callers of a function" },
-          "filter": { "type": "string", "description": "Only references from functions whose name contains this text (case-insensitive)" }
+          "address": {
+            "type": "string",
+            "description": "Hex address like 0x401000, or a symbol name"
+          },
+          "kind": {
+            "type": "string",
+            "x-enum": "xref_kind",
+            "default": "all",
+            "description": "Only references of this kind; call finds the callers of a function"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Only references from functions whose name contains this text (case-insensitive)"
+          }
         },
-        "required": ["address"]
+        "required": [
+          "address"
+        ]
       }
     },
     {
@@ -242,11 +291,24 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "Hex address of an instruction or data item, or a symbol name" },
-          "kind": { "type": "string", "x-enum": "xref_kind", "default": "all", "description": "Only references of this kind" },
-          "filter": { "type": "string", "description": "Only references to targets whose name contains this text (case-insensitive)" }
+          "address": {
+            "type": "string",
+            "description": "Hex address of an instruction or data item, or a symbol name"
+          },
+          "kind": {
+            "type": "string",
+            "x-enum": "xref_kind",
+            "default": "all",
+            "description": "Only references of this kind"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Only references to targets whose name contains this text (case-insensitive)"
+          }
         },
-        "required": ["address"]
+        "required": [
+          "address"
+        ]
       }
     },
     {
@@ -257,10 +319,18 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "Any address inside the function, or its name" },
-          "filter": { "type": "string", "description": "Only calls to targets whose name contains this text (case-insensitive)" }
+          "address": {
+            "type": "string",
+            "description": "Any address inside the function, or its name"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Only calls to targets whose name contains this text (case-insensitive)"
+          }
         },
-        "required": ["address"]
+        "required": [
+          "address"
+        ]
       }
     },
     {
@@ -271,13 +341,20 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "Any address inside the function, or its name" },
-          "filter": { "type": "string", "description": "Only calls from functions whose name contains this text (case-insensitive)" }
+          "address": {
+            "type": "string",
+            "description": "Any address inside the function, or its name"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Only calls from functions whose name contains this text (case-insensitive)"
+          }
         },
-        "required": ["address"]
+        "required": [
+          "address"
+        ]
       }
     },
-
     {
       "name": "get_bytes",
       "description": "Read raw bytes as a hex dump.",
@@ -285,10 +362,21 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
-          "count": { "type": "integer", "description": "Number of bytes", "minimum": 1, "maximum": 4096, "default": 64 }
+          "address": {
+            "type": "string",
+            "description": "Hex address like 0x401000, or a symbol name"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of bytes",
+            "minimum": 1,
+            "maximum": 4096,
+            "default": 64
+          }
         },
-        "required": ["address"]
+        "required": [
+          "address"
+        ]
       }
     },
     {
@@ -298,14 +386,29 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
-          "format": { "type": "string", "x-enum": "data_format", "description": "How to read: fixed-size integers, LEB128, a pointer (code_ptr for function pointers) or a NUL-terminated string" },
-          "count": { "type": "integer", "description": "Number of consecutive values", "minimum": 1, "maximum": 256, "default": 1 }
+          "address": {
+            "type": "string",
+            "description": "Hex address like 0x401000, or a symbol name"
+          },
+          "format": {
+            "type": "string",
+            "x-enum": "data_format",
+            "description": "How to read: fixed-size integers, LEB128, a pointer (code_ptr for function pointers) or a NUL-terminated string"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of consecutive values",
+            "minimum": 1,
+            "maximum": 256,
+            "default": 1
+          }
         },
-        "required": ["address", "format"]
+        "required": [
+          "address",
+          "format"
+        ]
       }
     },
-
     {
       "name": "patch_bytes",
       "description": "Change bytes in the analyzed program. Recorded as a patch, the analysis is updated, the original bytes are returned so it can be undone. The input file isn't modified.",
@@ -313,10 +416,19 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
-          "bytes": { "type": "string", "description": "Hex bytes, e.g. \"90 90 C3\" (max 4096)" }
+          "address": {
+            "type": "string",
+            "description": "Hex address like 0x401000, or a symbol name"
+          },
+          "bytes": {
+            "type": "string",
+            "description": "Hex bytes, e.g. \"90 90 C3\" (max 4096)"
+          }
         },
-        "required": ["address", "bytes"]
+        "required": [
+          "address",
+          "bytes"
+        ]
       }
     },
     {
@@ -326,11 +438,34 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
-          "format": { "type": "string", "x-enum": "data_format", "x-only": ["byte", "le16", "le32", "le64", "be16", "be32", "be64"], "description": "Size and byte order of the value" },
-          "value": { "type": "string", "description": "Decimal, negative or hex with 0x, e.g. 4660, -1 or 0x1234" }
+          "address": {
+            "type": "string",
+            "description": "Hex address like 0x401000, or a symbol name"
+          },
+          "format": {
+            "type": "string",
+            "x-enum": "data_format",
+            "x-only": [
+              "byte",
+              "le16",
+              "le32",
+              "le64",
+              "be16",
+              "be32",
+              "be64"
+            ],
+            "description": "Size and byte order of the value"
+          },
+          "value": {
+            "type": "string",
+            "description": "Decimal, negative or hex with 0x, e.g. 4660, -1 or 0x1234"
+          }
         },
-        "required": ["address", "format", "value"]
+        "required": [
+          "address",
+          "format",
+          "value"
+        ]
       }
     },
     {
@@ -340,11 +475,24 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "Hex address of the instruction to replace, or a symbol name" },
-          "instruction": { "type": "string", "description": "Assembly in the processor's syntax, e.g. \"nop\" or \"jmp 0x401000\"" },
-          "fill_nops": { "type": "boolean", "description": "Pad with NOPs when shorter than the original instruction", "default": true }
+          "address": {
+            "type": "string",
+            "description": "Hex address of the instruction to replace, or a symbol name"
+          },
+          "instruction": {
+            "type": "string",
+            "description": "Assembly in the processor's syntax, e.g. \"nop\" or \"jmp 0x401000\""
+          },
+          "fill_nops": {
+            "type": "boolean",
+            "description": "Pad with NOPs when shorter than the original instruction",
+            "default": true
+          }
         },
-        "required": ["address", "instruction"]
+        "required": [
+          "address",
+          "instruction"
+        ]
       }
     },
     {
@@ -354,10 +502,20 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "Hex address like 0x401000, or the current name" },
-          "name": { "type": "string", "description": "New name: letters, digits and _ $ @ ? . : ; empty removes the name", "maxLength": 256 }
+          "address": {
+            "type": "string",
+            "description": "Hex address like 0x401000, or the current name"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name: letters, digits and _ $ @ ? . : ; empty removes the name",
+            "maxLength": 256
+          }
         },
-        "required": ["address", "name"]
+        "required": [
+          "address",
+          "name"
+        ]
       }
     },
     {
@@ -367,11 +525,26 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
-          "text": { "type": "string", "description": "Comment text; empty removes the comment", "maxLength": 4096 },
-          "placement": { "type": "string", "x-enum": "comment_placement", "default": "inline", "description": "On the same line, or as lines before or after the item" }
+          "address": {
+            "type": "string",
+            "description": "Hex address like 0x401000, or a symbol name"
+          },
+          "text": {
+            "type": "string",
+            "description": "Comment text; empty removes the comment",
+            "maxLength": 4096
+          },
+          "placement": {
+            "type": "string",
+            "x-enum": "comment_placement",
+            "default": "inline",
+            "description": "On the same line, or as lines before or after the item"
+          }
         },
-        "required": ["address", "text"]
+        "required": [
+          "address",
+          "text"
+        ]
       }
     },
     {
@@ -381,11 +554,24 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
-          "type": { "type": "string", "description": "A type from list_types, optionally a pointer and/or array: u32, char[16], u8*, u8*[4]. A function type types the function there" },
-          "force": { "type": "boolean", "description": "Allow turning code into data", "default": false }
+          "address": {
+            "type": "string",
+            "description": "Hex address like 0x401000, or a symbol name"
+          },
+          "type": {
+            "type": "string",
+            "description": "A type from list_types, optionally a pointer and/or array: u32, char[16], u8*, u8*[4]. A function type types the function there"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Allow turning code into data",
+            "default": false
+          }
         },
-        "required": ["address", "type"]
+        "required": [
+          "address",
+          "type"
+        ]
       }
     }
   ]
