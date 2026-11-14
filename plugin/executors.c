@@ -329,8 +329,7 @@ yyjson_mut_val* mcp_exec_get_name(RDContext* ctx, yyjson_val* args,
 
     rd_scratch_puts(out, " (");
     _mcp_describe_address(ctx, address, out);
-    rd_scratch_puts(out, ")\nNote: names come from the analyzed binary and may "
-                         "be misleading.");
+    rd_scratch_puts(out, ")\n" MCP_UNTRUSTED_NOTE);
 
     yyjson_mut_val* r =
         mcp_result_text_n(doc, rd_scratch_data(out), rd_scratch_length(out));
@@ -1304,4 +1303,187 @@ yyjson_mut_val* mcp_exec_set_type(RDContext* ctx, yyjson_val* args,
     yyjson_mut_val* r = _mcp_set_type(ctx, args, doc, address, name, n, mod);
     rd_free(name);
     return r;
+}
+
+// ---- listing ----------------------------------------------------------------
+
+// What the model reads: addresses, names, comments and radix prefixes.
+// No segment names, indentation or anything interactive. Starts from
+// RD_RF_NONE, so prefixes stay on whatever the GUI's default becomes.
+#define MCP_LISTING_FLAGS                                                      \
+    ((RDRenderFlags)(RD_RF_NONE | RD_RF_NO_SEGMENT | RD_RF_NO_INDENT |         \
+                     RD_RF_NO_SEGMENT_LINE | RD_RF_NO_CURSOR |                 \
+                     RD_RF_NO_CURSOR_LINE | RD_RF_NO_SELECTION |               \
+                     RD_RF_NO_HIGHLIGHT))
+
+// a single item: the plain text form, with radix prefixes
+#define MCP_ITEM_FLAGS ((RDRenderFlags)(RD_RF_TEXT & ~RD_RF_NO_RADIX))
+
+// bytes shown by get_item, the size is always reported in full
+#define MCP_MAX_ITEM_BYTES 32
+
+static void _mcp_put_cp(RDScratchBuffer* out, u32 cp) {
+    // surrogates and out of range values aren't characters
+    if(cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) cp = 0xFFFD;
+
+    if(cp < 0x80) {
+        rd_scratch_putchar(out, (char)cp);
+    }
+    else if(cp < 0x800) {
+        rd_scratch_putchar(out, (char)(0xC0 | (cp >> 6)));
+        rd_scratch_putchar(out, (char)(0x80 | (cp & 0x3F)));
+    }
+    else if(cp < 0x10000) {
+        rd_scratch_putchar(out, (char)(0xE0 | (cp >> 12)));
+        rd_scratch_putchar(out, (char)(0x80 | ((cp >> 6) & 0x3F)));
+        rd_scratch_putchar(out, (char)(0x80 | (cp & 0x3F)));
+    }
+    else {
+        rd_scratch_putchar(out, (char)(0xF0 | (cp >> 18)));
+        rd_scratch_putchar(out, (char)(0x80 | ((cp >> 12) & 0x3F)));
+        rd_scratch_putchar(out, (char)(0x80 | ((cp >> 6) & 0x3F)));
+        rd_scratch_putchar(out, (char)(0x80 | (cp & 0x3F)));
+    }
+}
+
+// a surface row as a line of text, without the trailing spaces
+static void _mcp_put_row(RDScratchBuffer* out, RDRowSlice row) {
+    int n = row.content_length;
+    while(n > 0 && row.data[n - 1].cp == ' ')
+        n--;
+
+    for(int i = 0; i < n; i++)
+        _mcp_put_cp(out, row.data[i].cp);
+
+    rd_scratch_putchar(out, '\n');
+}
+
+yyjson_mut_val* mcp_exec_get_function(RDContext* ctx, yyjson_val* args,
+                                      yyjson_mut_doc* doc) {
+    RDAddress address, entry;
+
+    if(!_mcp_parse_address(ctx, mcp_arg_get_function_address(args), &address))
+        return mcp_result_error(doc, MCP_BAD_ADDRESS);
+
+    if(!rd_function_find(ctx, address, &entry))
+        return mcp_result_error(doc, "This address is not inside a function.");
+
+    McpPage page;
+    mcp_page_init(&page, args);
+
+    // the function graph renders the function's own blocks, in every chunk
+    RDSurfaceGraph* g = rd_surfacegraph_create(ctx, MCP_LISTING_FLAGS);
+
+    if(!rd_surfacegraph_jump_to(g, entry)) {
+        rd_surfacegraph_destroy(g);
+        return mcp_result_error(doc, "Cannot render this function now: the "
+                                     "analysis may still be running.");
+    }
+
+    rd_surfacegraph_render(g);
+
+    RDScratchBuffer* out = rd_scratch_create();
+    rd_scratch_puts(out, MCP_UNTRUSTED_NOTE "\n");
+
+    usize rows = rd_surfacegraph_get_row_count(g);
+    usize shown = 0;
+
+    for(usize i = 0; i < rows; i++) {
+        if(!mcp_page_take(&page, NULL)) continue;
+
+        _mcp_put_row(out, rd_surfacegraph_get_row(g, i));
+        shown++;
+    }
+
+    mcp_page_footer(&page, shown, out);
+    rd_surfacegraph_destroy(g);
+    return _mcp_reply(doc, out, false);
+}
+
+// the item containing 'address': back over its tail bytes to the start, then
+// forward to its end
+static bool _mcp_item_range(RDContext* ctx, RDAddress address, RDAddress* start,
+                            usize* size) {
+    RDFlags f;
+    if(!rd_get_flags(ctx, address, &f)) return false;
+
+    RDAddress s = address;
+
+    while(rd_flags_has_tail(f)) {
+        if(!s) return false; // a tail byte can't be the first address
+        s--;
+        if(!rd_get_flags(ctx, s, &f)) return false;
+    }
+
+    RDAddress e = address + 1;
+
+    while(rd_get_flags(ctx, e, &f) && rd_flags_has_tail(f))
+        e++;
+
+    *start = s;
+    *size = (usize)(e - s);
+    return true;
+}
+
+yyjson_mut_val* mcp_exec_get_item(RDContext* ctx, yyjson_val* args,
+                                  yyjson_mut_doc* doc) {
+    RDAddress address, start;
+    usize size;
+
+    if(!_mcp_parse_address(ctx, mcp_arg_get_item_address(args), &address))
+        return mcp_result_error(doc, MCP_BAD_ADDRESS);
+
+    if(!_mcp_item_range(ctx, address, &start, &size))
+        return mcp_result_error(doc, "This address is not inside any segment.");
+
+    RDScratchBuffer* out = rd_scratch_create();
+    rd_scratch_putf(out, "%s  ", _mcp_format_address(ctx, start));
+
+    // unexplored bytes render as a hexdump row with their neighbours: say it
+    RDFlags f;
+
+    if(rd_get_flags(ctx, start, &f) && rd_flags_has_unknown(f)) {
+        rd_scratch_puts(out, "unexplored byte, neither code nor data yet");
+    }
+    else {
+        // copied right away: the next render reuses the buffer
+        rd_scratch_puts(out, rd_render_text_as(ctx, start, MCP_ITEM_FLAGS));
+    }
+
+    rd_scratch_putchar(out, '\n');
+
+    if(start != address) {
+        rd_scratch_putf(out, "(%s is inside this item)\n",
+                        _mcp_format_address(ctx, address));
+    }
+
+    u8 bytes[MCP_MAX_ITEM_BYTES];
+    usize want = size < sizeof(bytes) ? size : sizeof(bytes);
+    usize got = rd_read(ctx, start, bytes, want);
+
+    rd_scratch_putf(out, "Size: %zu byte%s", size, size == 1 ? "" : "s");
+
+    if(got) {
+        rd_scratch_puts(out, ": ");
+        _mcp_put_hex(out, bytes, got);
+        if(got < size) rd_scratch_puts(out, " ...");
+    }
+
+    rd_scratch_putchar(out, '\n');
+
+    RDAddress entry;
+    const char* fname = _mcp_function_of(ctx, start, &entry);
+
+    if(fname) {
+        if(entry == start) {
+            rd_scratch_putf(out, "Function: %s (its entry)\n", fname);
+        }
+        else {
+            rd_scratch_putf(out, "Function: %s+0x%" PRIX64 "\n", fname,
+                            (u64)(start - entry));
+        }
+    }
+
+    rd_scratch_puts(out, MCP_UNTRUSTED_NOTE);
+    return _mcp_reply(doc, out, false);
 }

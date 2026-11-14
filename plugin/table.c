@@ -170,8 +170,7 @@ yyjson_mut_val* mcp_table_result(McpTable* self, const McpPage* page) {
     RDScratchBuffer* out = _mcp_table_buf();
 
     if(self->untrusted) {
-        rd_scratch_puts(out, "Note: names come from the analyzed binary and "
-                             "may be misleading.\n");
+        rd_scratch_puts(out, MCP_UNTRUSTED_NOTE "\n");
     }
 
     // header, then rows
@@ -196,23 +195,7 @@ yyjson_mut_val* mcp_table_result(McpTable* self, const McpPage* page) {
         rd_scratch_putchar(out, '\n');
     }
 
-    if(page) {
-        const char* matching = page->filter ? " matching the filter" : "";
-
-        if(!nrows) {
-            rd_scratch_putf(out, "No items in range (%zu total%s).",
-                            page->total, matching);
-        }
-        else {
-            usize last = page->offset + nrows;
-            rd_scratch_putf(out, "Showing %zu-%zu of %zu%s.", page->offset,
-                            last - 1, page->total, matching);
-
-            if(last < page->total)
-                rd_scratch_putf(out, " Call again with offset=%zu for more.",
-                                last);
-        }
-    }
+    if(page) mcp_page_footer(page, nrows, out);
 
     rd_free(widths);
 
@@ -231,6 +214,23 @@ void mcp_page_init(McpPage* self, yyjson_val* args) {
     // every paged tool has its own description for "filter", the key is shared
     const char* filter = yyjson_get_str(yyjson_obj_get(args, "filter"));
     self->filter = (filter && *filter) ? filter : NULL;
+}
+
+void mcp_page_footer(const McpPage* self, usize shown, RDScratchBuffer* out) {
+    const char* matching = self->filter ? " matching the filter" : "";
+
+    if(!shown) {
+        rd_scratch_putf(out, "No items in range (%zu total%s).", self->total,
+                        matching);
+        return;
+    }
+
+    usize last = self->offset + shown;
+    rd_scratch_putf(out, "Showing %zu-%zu of %zu%s.", self->offset, last - 1,
+                    self->total, matching);
+
+    if(last < self->total)
+        rd_scratch_putf(out, " Call again with offset=%zu for more.", last);
 }
 
 bool mcp_page_take(McpPage* self, const char* name) {

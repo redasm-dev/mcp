@@ -3,6 +3,10 @@
 #include <redasm/redasm.h>
 #include <yyjson.h>
 
+// added to any output that shows names or strings from the binary
+#define MCP_UNTRUSTED_NOTE                                                     \
+    "Note: names come from the analyzed binary and may be misleading."
+
 typedef struct McpPage {
     usize offset;
     usize limit;
@@ -29,6 +33,9 @@ void mcp_page_init(McpPage* self, yyjson_val* args);
 // call once per item, in a stable order: false if the item is filtered out or
 // outside the requested window ('name' can be NULL when there's no filter)
 bool mcp_page_take(McpPage* self, const char* name);
+
+// "Showing a-b of n." and where to continue, 'shown' items were output
+void mcp_page_footer(const McpPage* self, usize shown, RDScratchBuffer* out);
 
 // 'columns' is NULL-terminated
 McpTable mcp_table_begin(yyjson_mut_doc* doc, const char* const* columns);

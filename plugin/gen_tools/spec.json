@@ -170,6 +170,56 @@
     },
 
     {
+
+      "name": "get_function",
+
+      "description": "Disassemble a whole function, one line per instruction or label, with addresses, resolved names and comments. Numbers carry their radix: 0x hex, 0o octal, 0b binary, bare is decimal. Supports paging by line.",
+
+      "x-context": true,
+
+      "x-paging": true,
+
+      "inputSchema": {
+
+        "type": "object",
+
+        "properties": {
+
+          "address": { "type": "string", "description": "Any address inside the function, or its name" }
+
+        },
+
+        "required": ["address"]
+
+      }
+
+    },
+
+    {
+
+      "name": "get_item",
+
+      "description": "Show the single item at an address as the listing does: an instruction, or a data item such as a string or a variable, with its size, bytes and the function it's in. An address inside an item shows the whole item.",
+
+      "x-context": true,
+
+      "inputSchema": {
+
+        "type": "object",
+
+        "properties": {
+
+          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" }
+
+        },
+
+        "required": ["address"]
+
+      }
+
+    },
+
+    {
       "name": "list_xrefs_to",
       "description": "List the places that reference an address (who calls this function, who reads this variable), with the function each one is in. Supports paging.",
       "x-context": true,
