@@ -18,6 +18,16 @@
 #define MCP_BAD_ADDRESS                                                        \
     "Not an address or a known name: use hex like 0x401000 or a symbol name."
 
+static yyjson_mut_val* _mcp_reply(yyjson_mut_doc* doc, RDScratchBuffer* out,
+                                  bool error) {
+    const char* text = rd_scratch_data(out);
+    yyjson_mut_val* r =
+        error ? mcp_result_error(doc, text)
+              : mcp_result_text_n(doc, text, rd_scratch_length(out));
+    rd_scratch_destroy(out);
+    return r;
+}
+
 static bool _mcp_is_allowed(const char* resolved) {
     const RDDatum* dirs =
         rd_datum_get_array(rd_settings_global(), "mcp.allowed_dirs");
@@ -29,6 +39,18 @@ static bool _mcp_is_allowed(const char* resolved) {
     }
 
     return false;
+}
+
+static void _mcp_describe_kb(RDScratchBuffer* out) {
+    if(rd_slice_is_empty(rd_kb_get_paths())) {
+        rd_scratch_puts(out, "Knowledge base: not configured. API prototypes "
+                             "are unknown, so callbacks passed to APIs "
+                             "(window and dialog procedures, thread start "
+                             "routines) may be left unexplored.");
+    }
+    else {
+        rd_scratch_puts(out, "Knowledge base: configured.");
+    }
 }
 
 static const char* _mcp_format_address(const RDContext* ctx, RDAddress a) {
@@ -80,16 +102,23 @@ static void _mcp_describe_address(RDContext* ctx, RDAddress address,
 yyjson_mut_val* mcp_exec_status(RDContext* ctx, yyjson_val* args,
                                 yyjson_mut_doc* doc) {
     RD_UNUSED(args);
-    if(!ctx) return mcp_result_text(doc, "No file open.");
 
-    const RDLoaderPlugin* loader = rd_get_loader_plugin(ctx);
-    const RDProcessorPlugin* processor = rd_get_processor_plugin(ctx);
+    RDScratchBuffer* out = rd_scratch_create();
 
-    const char* text =
-        rd_format("File: %s\nLoader: %s\nProcessor: %s", rd_get_file_name(ctx),
-                  loader ? loader->id : "?", processor ? processor->id : "?");
+    if(ctx) {
+        const RDLoaderPlugin* loader = rd_get_loader_plugin(ctx);
+        const RDProcessorPlugin* processor = rd_get_processor_plugin(ctx);
 
-    return mcp_result_text(doc, text);
+        rd_scratch_putf(out, "File: %s\nLoader: %s\nProcessor: %s\n",
+                        rd_get_file_name(ctx), loader ? loader->id : "?",
+                        processor ? processor->id : "?");
+    }
+    else {
+        rd_scratch_puts(out, "No file open.\n");
+    }
+
+    _mcp_describe_kb(out);
+    return _mcp_reply(doc, out, false);
 }
 
 yyjson_mut_val* mcp_exec_open_file(RDContext* ctx, yyjson_val* args,
@@ -830,19 +859,6 @@ yyjson_mut_val* mcp_exec_get_data(RDContext* ctx, yyjson_val* args,
 }
 
 // ---- writing ----------------------------------------------------------------
-// Every change goes through rd_patch, never rd_write: rd_write is the loaders'
-// raw write, it isn't recorded as a patch and doesn't requeue the analysis.
-
-// sends 'out' as the result and destroys it
-static yyjson_mut_val* _mcp_reply(yyjson_mut_doc* doc, RDScratchBuffer* out,
-                                  bool error) {
-    const char* text = rd_scratch_data(out);
-    yyjson_mut_val* r =
-        error ? mcp_result_error(doc, text)
-              : mcp_result_text_n(doc, text, rd_scratch_length(out));
-    rd_scratch_destroy(out);
-    return r;
-}
 
 // "0x90", "90 90 C3", "9090c3": pairs of hex digits, spaces ignored
 static const char* _mcp_parse_hex(const char* s, u8** data, usize* n) {
