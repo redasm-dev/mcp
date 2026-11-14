@@ -109,7 +109,9 @@ static const char* _mcp_write(yyjson_mut_doc* doc, yyjson_mut_val* msg) {
         mcp_reply = yyjson_mut_write(doc, YYJSON_WRITE_NOFLAG, NULL);
     }
 
-    // RD_LOG_DEBUG("send: %.500s", mcp_reply ? mcp_reply : "(null)");
+    if(mcp_session_debug())
+        RD_LOG_DEBUG("send: %.500s", mcp_reply ? mcp_reply : "(null)");
+
     return mcp_reply ? mcp_reply : "";
 }
 
@@ -159,7 +161,7 @@ static yyjson_mut_val* _mcp_tool_result(yyjson_mut_doc* doc, const char* text,
 
 RDCommandValue mcp_execute(RDContext* ctx, const RDCommandValue* args) {
     const char* line = args[0].s;
-    // RD_LOG_DEBUG("recv: %.500s", line);
+    if(mcp_session_debug()) RD_LOG_DEBUG("recv: %.500s", line);
 
     yyjson_doc* req = yyjson_read(line, strlen(line), YYJSON_READ_NOFLAG);
     yyjson_val* root = yyjson_doc_get_root(req);

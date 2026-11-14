@@ -1,0 +1,342 @@
+{
+  "enums": {
+    "external_kind": {
+      "type": "RDExternalKind",
+      "values": {
+        "all": "RD_EXT_NONE",
+        "import": "RD_EXT_IMPORTED",
+        "export": "RD_EXT_EXPORTED"
+      }
+    },
+    "symbol_kind": {
+      "type": "RDSymbolKind",
+      "values": {
+        "all": "RD_SYMBOL_INVALID",
+        "segment": "RD_SYMBOL_SEGMENT",
+        "function": "RD_SYMBOL_FUNCTION",
+        "data": "RD_SYMBOL_TYPE",
+        "name": "RD_SYMBOL_NAME"
+      }
+    },
+    "xref_kind": {
+      "type": "RDXRefType",
+      "values": {
+        "all": "RD_XR_NONE",
+        "read": "RD_DR_READ",
+        "write": "RD_DR_WRITE",
+        "address": "RD_DR_ADDRESS",
+        "call": "RD_CR_CALL",
+        "jump": "RD_CR_JUMP"
+      }
+    },
+    "data_format": {
+      "values": ["byte", "le16", "le32", "le64", "be16", "be32", "be64",
+                 "uleb128", "sleb128", "ptr", "code_ptr", "str"]
+    },
+    "comment_placement": {
+      "values": ["inline", "before", "after"]
+    }
+  },
+
+  "paging": {
+    "offset": {
+      "type": "integer",
+      "description": "Index of the first item to return",
+      "minimum": 0,
+      "default": 0
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Maximum number of items to return",
+      "minimum": 1,
+      "maximum": 500,
+      "default": 100
+    }
+  },
+
+  "tools": [
+    {
+      "name": "status",
+      "description": "Report the open file and analysis state"
+    },
+    {
+      "name": "open_file",
+      "description": "Open a file for analysis, replacing the current one. Only files inside the configured allowed directories can be opened.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Absolute path of the file to open" }
+        },
+        "required": ["path"]
+      }
+    },
+
+    {
+      "name": "list_segments",
+      "description": "List the segments of the open file: address range, size in bytes, permissions and name.",
+      "x-context": true
+    },
+    {
+      "name": "list_mappings",
+      "description": "List how the input file is mapped in memory: file offset, address range and size of each mapping.",
+      "x-context": true
+    },
+    {
+      "name": "list_functions",
+      "description": "List the functions found by the analysis, sorted by address. Supports filtering by name and paging.",
+      "x-context": true,
+      "x-paging": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "filter": { "type": "string", "description": "Only functions whose name contains this text (case-insensitive)" }
+        }
+      }
+    },
+    {
+      "name": "list_externals",
+      "description": "List imported and exported symbols with their module. Supports filtering by name and paging.",
+      "x-context": true,
+      "x-paging": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "x-enum": "external_kind", "default": "all", "description": "Imports, exports or both" },
+          "filter": { "type": "string", "description": "Only symbols whose name contains this text (case-insensitive)" }
+        }
+      }
+    },
+    {
+      "name": "list_symbols",
+      "description": "List named items with their kind, and their type when known. Supports filtering by name and paging.",
+      "x-context": true,
+      "x-paging": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "x-enum": "symbol_kind", "default": "all", "description": "Only symbols of this kind: data is typed data such as strings and variables, name is a plain label" },
+          "filter": { "type": "string", "description": "Only symbols whose name contains this text (case-insensitive)" }
+        }
+      }
+    },
+    {
+      "name": "list_strings",
+      "description": "List the strings found in the binary with their text. Supports filtering by content and paging.",
+      "x-context": true,
+      "x-paging": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "filter": { "type": "string", "description": "Only strings containing this text (case-insensitive)" }
+        }
+      }
+    },
+    {
+      "name": "list_types",
+      "description": "List the type names that set_type accepts, with kind and size. Supports filtering and paging.",
+      "x-context": true,
+      "x-paging": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "filter": { "type": "string", "description": "Only types whose name contains this text (case-insensitive)" }
+        }
+      }
+    },
+
+    {
+      "name": "get_name",
+      "description": "Describe an address: its name, or the function it falls inside, plus its segment and import/export status.",
+      "x-context": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" }
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "get_address",
+      "description": "Find the address of a symbol by its exact name.",
+      "x-context": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Exact symbol name, e.g. WndProc or sub_401000" }
+        },
+        "required": ["name"]
+      }
+    },
+
+    {
+      "name": "list_xrefs_to",
+      "description": "List the places that reference an address (who calls this function, who reads this variable), with the function each one is in. Supports paging.",
+      "x-context": true,
+      "x-paging": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
+          "kind": { "type": "string", "x-enum": "xref_kind", "default": "all", "description": "Only references of this kind; call finds the callers of a function" },
+          "filter": { "type": "string", "description": "Only references from functions whose name contains this text (case-insensitive)" }
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "list_xrefs_from",
+      "description": "List what a single instruction or data item references: call and jump targets, data it reads, writes or takes the address of. Supports paging.",
+      "x-context": true,
+      "x-paging": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string", "description": "Hex address of an instruction or data item, or a symbol name" },
+          "kind": { "type": "string", "x-enum": "xref_kind", "default": "all", "description": "Only references of this kind" },
+          "filter": { "type": "string", "description": "Only references to targets whose name contains this text (case-insensitive)" }
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "list_callees",
+      "description": "List every call made by a function, one row per call site, with direct or indirect. Supports filtering by target name and paging.",
+      "x-context": true,
+      "x-paging": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string", "description": "Any address inside the function, or its name" },
+          "filter": { "type": "string", "description": "Only calls to targets whose name contains this text (case-insensitive)" }
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "list_callers",
+      "description": "List every call to a function, one row per call site, with the calling function. Includes indirect calls. Supports filtering by caller name and paging.",
+      "x-context": true,
+      "x-paging": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string", "description": "Any address inside the function, or its name" },
+          "filter": { "type": "string", "description": "Only calls from functions whose name contains this text (case-insensitive)" }
+        },
+        "required": ["address"]
+      }
+    },
+
+    {
+      "name": "get_bytes",
+      "description": "Read raw bytes as a hex dump.",
+      "x-context": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
+          "count": { "type": "integer", "description": "Number of bytes", "minimum": 1, "maximum": 4096, "default": 64 }
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "get_data",
+      "description": "Read typed values: integers of a given size and byte order, LEB128, pointers with their target name, or a string. Stops early at unreadable memory.",
+      "x-context": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
+          "format": { "type": "string", "x-enum": "data_format", "description": "How to read: fixed-size integers, LEB128, a pointer (code_ptr for function pointers) or a NUL-terminated string" },
+          "count": { "type": "integer", "description": "Number of consecutive values", "minimum": 1, "maximum": 256, "default": 1 }
+        },
+        "required": ["address", "format"]
+      }
+    },
+
+    {
+      "name": "patch_bytes",
+      "description": "Change bytes in the analyzed program. Recorded as a patch, the analysis is updated, the original bytes are returned so it can be undone. The input file isn't modified.",
+      "x-context": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
+          "bytes": { "type": "string", "description": "Hex bytes, e.g. \"90 90 C3\" (max 4096)" }
+        },
+        "required": ["address", "bytes"]
+      }
+    },
+    {
+      "name": "patch_data",
+      "description": "Write an integer of a given size and byte order, as a patch. Returns the original bytes.",
+      "x-context": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
+          "format": { "type": "string", "x-enum": "data_format", "x-only": ["byte", "le16", "le32", "le64", "be16", "be32", "be64"], "description": "Size and byte order of the value" },
+          "value": { "type": "string", "description": "Decimal, negative or hex with 0x, e.g. 4660, -1 or 0x1234" }
+        },
+        "required": ["address", "format", "value"]
+      }
+    },
+    {
+      "name": "patch_instruction",
+      "description": "Replace an instruction by assembling new text, as a patch. Only for processors that can assemble.",
+      "x-context": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string", "description": "Hex address of the instruction to replace, or a symbol name" },
+          "instruction": { "type": "string", "description": "Assembly in the processor's syntax, e.g. \"nop\" or \"jmp 0x401000\"" },
+          "fill_nops": { "type": "boolean", "description": "Pad with NOPs when shorter than the original instruction", "default": true }
+        },
+        "required": ["address", "instruction"]
+      }
+    },
+    {
+      "name": "rename",
+      "description": "Give an address a name, or remove the one it has. Fails if another address already has that name.",
+      "x-context": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string", "description": "Hex address like 0x401000, or the current name" },
+          "name": { "type": "string", "description": "New name: letters, digits and _ $ @ ? . : ; empty removes the name" }
+        },
+        "required": ["address", "name"]
+      }
+    },
+    {
+      "name": "set_comment",
+      "description": "Set or remove the comment at an address.",
+      "x-context": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
+          "text": { "type": "string", "description": "Comment text; empty removes the comment" },
+          "placement": { "type": "string", "x-enum": "comment_placement", "default": "inline", "description": "On the same line, or as lines before or after the item" }
+        },
+        "required": ["address", "text"]
+      }
+    },
+    {
+      "name": "set_type",
+      "description": "Mark an address as data of a type, e.g. a string, an integer array or a struct, or type the function there. Refuses to turn code into data unless forced.",
+      "x-context": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
+          "type": { "type": "string", "description": "A type from list_types, optionally a pointer and/or array: u32, char[16], u8*, u8*[4]. A function type types the function there" },
+          "force": { "type": "boolean", "description": "Allow turning code into data", "default": false }
+        },
+        "required": ["address", "type"]
+      }
+    }
+  ]
+}

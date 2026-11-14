@@ -24,6 +24,11 @@ static const RDDatumSchema MCP_SETTINGS_SCHEMA[] = {
         .kind = RD_DATUM_BOOL,
         .optional = true,
     },
+    {
+        .key = "name_prefix",
+        .kind = RD_DATUM_STRING,
+        .optional = true,
+    },
     {0},
 };
 
@@ -112,6 +117,17 @@ RDContext* mcp_session_context(RDContext* host_ctx) {
 bool mcp_session_debug(void) { return mcp_debug; }
 bool mcp_session_settings_valid(void) { return mcp_settings_valid; }
 bool mcp_session_is_standalone(void) { return mcp_standalone; }
+
+const char* mcp_session_name_prefix(void) {
+    if(!mcp_settings_valid) return NULL;
+    const char* p = rd_datum_get_str(rd_settings_global(), "mcp.name_prefix");
+    return (p && *p) ? p : NULL;
+}
+
+void mcp_session_settle(RDContext* ctx) {
+    // in redasm_mcp nothing else drives the analysis, the GUI has its own loop
+    if(ctx && ctx == mcp_own_ctx) rd_run(ctx);
+}
 
 void mcp_session_close(void) {
     _mcp_session_destroy();

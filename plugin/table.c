@@ -1,5 +1,6 @@
 #include "table.h"
 #include "mcp.h"
+#include "tools_gen.h"
 #include <ctype.h>
 #include <inttypes.h>
 #include <stdarg.h>
@@ -220,32 +221,16 @@ yyjson_mut_val* mcp_table_result(McpTable* self, const McpPage* page) {
                              rd_scratch_length(out));
 }
 
-const char* mcp_page_init(McpPage* self, yyjson_val* args) {
-    *self = (McpPage){.limit = MCP_PAGE_DEFAULT_LIMIT};
+void mcp_page_init(McpPage* self, yyjson_val* args) {
+    // validated against the schema: in range, the defaults come from the spec
+    *self = (McpPage){
+        .offset = (usize)mcp_paging_offset(args),
+        .limit = (usize)mcp_paging_limit(args),
+    };
 
-    yyjson_val* v = yyjson_obj_get(args, "offset");
-
-    if(v) {
-        if(yyjson_get_sint(v) < 0) return "'offset' cannot be negative.";
-        self->offset = (usize)yyjson_get_sint(v);
-    }
-
-    v = yyjson_obj_get(args, "limit");
-
-    if(v) {
-        i64 limit = yyjson_get_sint(v);
-
-        if(limit < 1 || limit > MCP_PAGE_MAX_LIMIT) {
-            return rd_format("'limit' must be between 1 and %d.",
-                             MCP_PAGE_MAX_LIMIT);
-        }
-
-        self->limit = (usize)limit;
-    }
-
+    // every paged tool has its own description for "filter", the key is shared
     const char* filter = yyjson_get_str(yyjson_obj_get(args, "filter"));
     self->filter = (filter && *filter) ? filter : NULL;
-    return NULL;
 }
 
 bool mcp_page_take(McpPage* self, const char* name) {

@@ -3,9 +3,6 @@
 #include <redasm/redasm.h>
 #include <yyjson.h>
 
-#define MCP_PAGE_DEFAULT_LIMIT 100
-#define MCP_PAGE_MAX_LIMIT 500
-
 typedef struct McpPage {
     usize offset;
     usize limit;
@@ -26,8 +23,8 @@ typedef struct McpTable {
     bool untrusted;
 } McpTable;
 
-// NULL on success, otherwise a message for the model
-const char* mcp_page_init(McpPage* self, yyjson_val* args);
+// "offset", "limit" and "filter" of a tool with x-paging
+void mcp_page_init(McpPage* self, yyjson_val* args);
 
 // call once per item, in a stable order: false if the item is filtered out or
 // outside the requested window ('name' can be NULL when there's no filter)
