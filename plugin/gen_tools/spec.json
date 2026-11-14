@@ -305,7 +305,7 @@
         "type": "object",
         "properties": {
           "address": { "type": "string", "description": "Hex address like 0x401000, or the current name" },
-          "name": { "type": "string", "description": "New name: letters, digits and _ $ @ ? . : ; empty removes the name" }
+          "name": { "type": "string", "description": "New name: letters, digits and _ $ @ ? . : ; empty removes the name", "maxLength": 256 }
         },
         "required": ["address", "name"]
       }
@@ -318,7 +318,7 @@
         "type": "object",
         "properties": {
           "address": { "type": "string", "description": "Hex address like 0x401000, or a symbol name" },
-          "text": { "type": "string", "description": "Comment text; empty removes the comment" },
+          "text": { "type": "string", "description": "Comment text; empty removes the comment", "maxLength": 4096 },
           "placement": { "type": "string", "x-enum": "comment_placement", "default": "inline", "description": "On the same line, or as lines before or after the item" }
         },
         "required": ["address", "text"]
