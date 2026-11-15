@@ -41,11 +41,33 @@ static void _mcp_session_destroy(void) {
     mcp_own_ctx = NULL;
 }
 
+bool mcp_session_is_project(const char* filepath) {
+    const char* ext = rd_path_ext(filepath);
+    return ext && !strcmp(ext, "rdx");
+}
+
+// a project restores the saved database: names, comments, types and patches
+static bool _mcp_session_load_project(const char* filepath) {
+    RDAcceptResult res = rd_project_load(filepath, _mcp_session_working_dir());
+
+    if(res.status != RD_ACCEPT_OK) {
+        RD_LOG_FAIL("cannot load project '%s'", filepath);
+        return false;
+    }
+
+    mcp_own_ctx = res.context;
+    rd_run(mcp_own_ctx); // nothing left to do for a finished analysis
+    return true;
+}
+
 bool mcp_session_open(const char* filepath) {
     if(!mcp_settings_valid) return false;
 
     _mcp_session_destroy();
     if(!filepath || !(*filepath)) return false;
+
+    if(mcp_session_is_project(filepath))
+        return _mcp_session_load_project(filepath);
 
     RDTestResultSlice tests = rd_test(filepath);
 
@@ -115,6 +137,7 @@ RDContext* mcp_session_context(RDContext* host_ctx) {
 }
 
 bool mcp_session_debug(void) { return mcp_debug; }
+const char* mcp_session_working_dir(void) { return _mcp_session_working_dir(); }
 bool mcp_session_settings_valid(void) { return mcp_settings_valid; }
 bool mcp_session_is_standalone(void) { return mcp_standalone; }
 

@@ -112,6 +112,21 @@ yyjson_mut_val* mcp_exec_status(RDContext* ctx, yyjson_val* args,
         rd_scratch_putf(out, "File: %s\nLoader: %s\nProcessor: %s\n",
                         rd_get_file_name(ctx), loader ? loader->id : "?",
                         processor ? processor->id : "?");
+
+        rd_scratch_putf(out, "Base address: %s\n",
+                        _mcp_format_address(ctx, rd_get_base_address(ctx)));
+
+        RDAddress ep;
+
+        // without one core falls back to the first segment: still the start
+        if(rd_get_entry_point(ctx, &ep)) {
+            rd_scratch_putf(out, "Entry point: %s",
+                            _mcp_format_address(ctx, ep));
+
+            const char* name = rd_get_name(ctx, ep);
+            if(name && *name) rd_scratch_putf(out, " (%s)", name);
+            rd_scratch_putchar(out, '\n');
+        }
     }
     else {
         rd_scratch_puts(out, "No file open.\n");
@@ -121,10 +136,24 @@ yyjson_mut_val* mcp_exec_status(RDContext* ctx, yyjson_val* args,
     return _mcp_reply(doc, out, false);
 }
 
-yyjson_mut_val* mcp_exec_open_file(RDContext* ctx, yyjson_val* args,
-                                   yyjson_mut_doc* doc) {
-    RD_UNUSED(ctx);
+// a project is also allowed in the working directory, where save_project
+// writes it
+static bool _mcp_is_allowed_project(const char* resolved) {
+    if(_mcp_is_allowed(resolved)) return true;
 
+    const char* wd = mcp_session_working_dir();
+    if(!wd) return false;
+
+    const char* r = rd_path_resolve(wd);
+    char* dir = rd_strdup(r ? r : wd); // the caller holds its own copy
+    bool inside = rd_path_isinside(resolved, dir);
+    rd_free(dir);
+    return inside;
+}
+
+// open_file and load_project: the same checks, then the session opens it
+static yyjson_mut_val* _mcp_open(yyjson_mut_doc* doc, const char* path,
+                                 bool project) {
     if(!mcp_session_is_standalone())
         return mcp_result_error(
             doc, "Opening files is only available in redasm_mcp.");
@@ -133,12 +162,13 @@ yyjson_mut_val* mcp_exec_open_file(RDContext* ctx, yyjson_val* args,
         return mcp_result_error(
             doc, "Opening files is disabled: the [mcp] settings are invalid.");
 
-    if(rd_datum_is_empty(
-           rd_datum_get_array(rd_settings_global(), "mcp.allowed_dirs")))
+    bool no_dirs = rd_datum_is_empty(
+        rd_datum_get_array(rd_settings_global(), "mcp.allowed_dirs"));
+
+    if(no_dirs && !(project && mcp_session_working_dir()))
         return mcp_result_error(
             doc, "Opening files is disabled: no allowed_dirs set.");
 
-    const char* path = mcp_arg_open_file_path(args);
     if(!(*path)) return mcp_result_error(doc, "'path' cannot be empty.");
 
     // resolve first, then check and open the same resolved path
@@ -151,24 +181,53 @@ yyjson_mut_val* mcp_exec_open_file(RDContext* ctx, yyjson_val* args,
     if(!rd_path_isfile(resolved)) {
         result = mcp_result_error(doc, "Not a regular file.");
     }
-    else if(!_mcp_is_allowed(resolved)) {
-        result =
-            mcp_result_error(doc, "Path is outside the allowed directories.");
+    else if(project && !mcp_session_is_project(resolved)) {
+        result = mcp_result_error(
+            doc, "Not a REDasm project (.rdx): use open_file for binaries.");
+    }
+    else if(!project && mcp_session_is_project(resolved)) {
+        result = mcp_result_error(
+            doc, "This is a REDasm project: use load_project.");
+    }
+    else if(project ? !_mcp_is_allowed_project(resolved)
+                    : !_mcp_is_allowed(resolved)) {
+        result = mcp_result_error(
+            doc, project ? "Path is outside the allowed directories and the "
+                           "working directory."
+                         : "Path is outside the allowed directories.");
     }
     else if(!mcp_session_open(resolved)) {
         result = mcp_result_error(
-            doc, "Cannot open this file, no file is open now.");
+            doc, project ? "Cannot load this project, no file is open now. "
+                           "It may need plugins that aren't loaded."
+                         : "Cannot open this file, no file is open now.");
     }
     else {
         const char* text = rd_format(
-            "Opened %s, analysis complete. Addresses and names from any "
-            "previous file no longer apply.",
+            project ? "Loaded project %s: names, comments, types and patches "
+                      "from the saved session are back. Addresses and names "
+                      "from any previous file no longer apply."
+                    : "Opened %s, analysis complete. Addresses and names from "
+                      "any previous file no longer apply.",
             rd_path_filename(resolved));
+
         result = mcp_result_text(doc, text);
     }
 
     rd_free(resolved);
     return result;
+}
+
+yyjson_mut_val* mcp_exec_open_file(RDContext* ctx, yyjson_val* args,
+                                   yyjson_mut_doc* doc) {
+    RD_UNUSED(ctx);
+    return _mcp_open(doc, mcp_arg_open_file_path(args), false);
+}
+
+yyjson_mut_val* mcp_exec_load_project(RDContext* ctx, yyjson_val* args,
+                                      yyjson_mut_doc* doc) {
+    RD_UNUSED(ctx);
+    return _mcp_open(doc, mcp_arg_load_project_path(args), true);
 }
 
 yyjson_mut_val* mcp_exec_list_segments(RDContext* ctx, yyjson_val* args,
@@ -366,9 +425,9 @@ yyjson_mut_val* mcp_exec_get_name(RDContext* ctx, yyjson_val* args,
     return r;
 }
 
-yyjson_mut_val* mcp_exec_get_address(RDContext* ctx, yyjson_val* args,
+yyjson_mut_val* mcp_exec_find_name(RDContext* ctx, yyjson_val* args,
                                      yyjson_mut_doc* doc) {
-    const char* name = mcp_arg_get_address_name(args);
+    const char* name = mcp_arg_find_name_name(args);
     RDAddress address;
 
     if(!rd_get_address(ctx, name, &address)) {
@@ -1111,7 +1170,7 @@ yyjson_mut_val* mcp_exec_rename(RDContext* ctx, yyjson_val* args,
 
     if(!ok) {
         rd_scratch_puts(out, *final ? "Cannot rename this address: it must be "
-                                      "the start of an item inside a segment."
+                                      "the first byte of an instruction or of data, inside a segment."
                                     : "There's no name to remove here.");
     }
     else if(*final) {
@@ -1164,7 +1223,7 @@ yyjson_mut_val* mcp_exec_set_comment(RDContext* ctx, yyjson_val* args,
 
     if(!ok) {
         return mcp_result_error(doc, "Cannot comment this address: it must be "
-                                     "the start of an item inside a segment.");
+                                     "the first byte of an instruction or of data, inside a segment.");
     }
 
     RDScratchBuffer* out = rd_scratch_create();
@@ -1335,7 +1394,7 @@ yyjson_mut_val* mcp_exec_set_type(RDContext* ctx, yyjson_val* args,
 // a single item: the plain text form, with radix prefixes
 #define MCP_ITEM_FLAGS ((RDRenderFlags)(RD_RF_TEXT & ~RD_RF_NO_RADIX))
 
-// bytes shown by get_item, the size is always reported in full
+// bytes shown by get_address_details, the size is always reported in full
 #define MCP_MAX_ITEM_BYTES 32
 
 static void _mcp_put_cp(RDScratchBuffer* out, u32 cp) {
@@ -1441,12 +1500,12 @@ static bool _mcp_item_range(RDContext* ctx, RDAddress address, RDAddress* start,
     return true;
 }
 
-yyjson_mut_val* mcp_exec_get_item(RDContext* ctx, yyjson_val* args,
+yyjson_mut_val* mcp_exec_get_address_details(RDContext* ctx, yyjson_val* args,
                                   yyjson_mut_doc* doc) {
     RDAddress address, start;
     usize size;
 
-    if(!_mcp_parse_address(ctx, mcp_arg_get_item_address(args), &address))
+    if(!_mcp_parse_address(ctx, mcp_arg_get_address_details_address(args), &address))
         return mcp_result_error(doc, MCP_BAD_ADDRESS);
 
     if(!_mcp_item_range(ctx, address, &start, &size))
@@ -1469,7 +1528,7 @@ yyjson_mut_val* mcp_exec_get_item(RDContext* ctx, yyjson_val* args,
     rd_scratch_putchar(out, '\n');
 
     if(start != address) {
-        rd_scratch_putf(out, "(%s is inside this item)\n",
+        rd_scratch_putf(out, "(asked for %s, which is inside it)\n",
                         _mcp_format_address(ctx, address));
     }
 
@@ -1487,6 +1546,10 @@ yyjson_mut_val* mcp_exec_get_item(RDContext* ctx, yyjson_val* args,
 
     rd_scratch_putchar(out, '\n');
 
+    // the text form leaves comments out, they belong to the item too
+    const char* cmt = rd_get_comment_inline(ctx, start);
+    if(cmt && *cmt) rd_scratch_putf(out, "Comment: %s\n", cmt);
+
     RDAddress entry;
     const char* fname = _mcp_function_of(ctx, start, &entry);
 
@@ -1501,5 +1564,188 @@ yyjson_mut_val* mcp_exec_get_item(RDContext* ctx, yyjson_val* args,
     }
 
     rd_scratch_puts(out, MCP_UNTRUSTED_NOTE);
+    return _mcp_reply(doc, out, false);
+}
+
+// ---- project and analysis --------------------------------------------------
+
+yyjson_mut_val* mcp_exec_save_project(RDContext* ctx, yyjson_val* args,
+                                      yyjson_mut_doc* doc) {
+    RD_UNUSED(args);
+
+    // in REDasm the project belongs to the user: they save it from the GUI
+    if(!mcp_session_is_standalone())
+        return mcp_result_error(doc, "Saving is only available in redasm_mcp: "
+                                     "in REDasm, save from the GUI.");
+
+    const char* wd = rd_get_working_dir(ctx);
+    if(!wd || !(*wd))
+        return mcp_result_error(doc, "There's no working directory.");
+
+    // where rd_project_save(ctx, NULL) writes, computed here to report it.
+    // Each helper reuses its buffer: copy before the next call
+    char* name =
+        rd_strdup(rd_format("%s.rdx", rd_path_stem(rd_get_file_name(ctx))));
+    char* path = rd_strdup(rd_path_join(wd, name));
+    rd_free(name);
+
+    bool ok = rd_project_save(ctx, path);
+
+    RDScratchBuffer* out = rd_scratch_create();
+
+    if(ok) {
+        rd_scratch_putf(out,
+                        "Saved the project to %s. load_project restores "
+                        "it, names, comments, types and patches included.",
+                        path);
+    }
+    else {
+        rd_scratch_putf(out, "Cannot save the project to %s.", path);
+    }
+
+    rd_free(path);
+    return _mcp_reply(doc, out, !ok);
+}
+
+// unmapped values aren't addresses in this binary, but still worth showing
+static void _mcp_table_problem_value(McpTable* t, RDContext* ctx, RDAddress v,
+                                     bool is_address) {
+    if(is_address)
+        mcp_table_address(t, ctx, v);
+    else
+        mcp_table_fmt(t, "0x%" PRIX64 " (unmapped)", (u64)v);
+}
+
+yyjson_mut_val* mcp_exec_list_problems(RDContext* ctx, yyjson_val* args,
+                                       yyjson_mut_doc* doc) {
+    McpPage page;
+    mcp_page_init(&page, args);
+
+    static const char* const COLUMNS[] = {"from", "target", "message", NULL};
+
+    McpTable t = mcp_table_begin(doc, COLUMNS);
+    mcp_table_set_untrusted(&t); // messages quote names from the binary
+
+    RDProblemSlice problems = rd_get_all_problems(ctx, RD_PROBLEM_NONE);
+
+    const RDProblem* p;
+    rd_slice_each(p, problems) {
+        if(!mcp_page_take(&page, p->message)) continue;
+
+        mcp_table_row(&t);
+        _mcp_table_problem_value(&t, ctx, p->from.value, p->from.is_address);
+        _mcp_table_problem_value(&t, ctx, p->target.value,
+                                 p->target.is_address);
+        mcp_table_str(&t, p->message);
+    }
+
+    return mcp_table_result(&t, &page);
+}
+
+yyjson_mut_val* mcp_exec_reanalyze(RDContext* ctx, yyjson_val* args,
+                                   yyjson_mut_doc* doc) {
+    RD_UNUSED(args);
+
+    if(!rd_reanalyze(ctx))
+        return mcp_result_error(doc, "The analysis is still running: try again "
+                                     "when it's done.");
+
+    mcp_session_settle(ctx);
+
+    if(!mcp_session_is_standalone())
+        return mcp_result_text(doc, "Reanalysis started in REDasm.");
+
+    return mcp_result_text(doc, rd_format("Reanalysis finished: %zu functions.",
+                                          rd_get_all_functions(ctx).length));
+}
+
+yyjson_mut_val* mcp_exec_make_function(RDContext* ctx, yyjson_val* args,
+                                       yyjson_mut_doc* doc) {
+    RDAddress address;
+
+    if(!_mcp_parse_address(ctx, mcp_arg_make_function_address(args), &address))
+        return mcp_result_error(doc, MCP_BAD_ADDRESS);
+
+    RDScratchBuffer* out = rd_scratch_create();
+
+    if(rd_is_function(ctx, address)) {
+        rd_scratch_putf(out, "%s is already a function",
+                        _mcp_format_address(ctx, address));
+        rd_scratch_putf(out, " (%s).", rd_get_name(ctx, address));
+        return _mcp_reply(doc, out, false);
+    }
+
+    if(!rd_set_function(ctx, address)) {
+        rd_scratch_putf(out,
+                        "Cannot make a function at %s: it must be in an "
+                        "executable segment and not inside an "
+                        "instruction or data. See list_problems.",
+                        _mcp_format_address(ctx, address));
+        return _mcp_reply(doc, out, true);
+    }
+
+    mcp_session_settle(ctx);
+
+    // in REDasm the analysis runs later: it's queued, not done
+    if(!mcp_session_is_standalone()) {
+        rd_scratch_putf(out, "Queued a function at %s for analysis.",
+                        _mcp_format_address(ctx, address));
+        return _mcp_reply(doc, out, false);
+    }
+
+    if(!rd_is_function(ctx, address)) {
+        rd_scratch_putf(out,
+                        "The analysis didn't create a function at %s: "
+                        "see list_problems.",
+                        _mcp_format_address(ctx, address));
+        return _mcp_reply(doc, out, true);
+    }
+
+    rd_scratch_putf(out, "Created function %s at ", rd_get_name(ctx, address));
+    rd_scratch_putf(out, "%s, analysis updated. get_function shows it.",
+                    _mcp_format_address(ctx, address));
+    return _mcp_reply(doc, out, false);
+}
+
+yyjson_mut_val* mcp_exec_set_noreturn(RDContext* ctx, yyjson_val* args,
+                                      yyjson_mut_doc* doc) {
+    RDAddress address;
+
+    if(!_mcp_parse_address(ctx, mcp_arg_set_noreturn_address(args), &address))
+        return mcp_result_error(doc, MCP_BAD_ADDRESS);
+
+    RDScratchBuffer* out = rd_scratch_create();
+    RDAddress entry;
+
+    // explicit on purpose: marking the containing function could be a mistake
+    if(!rd_is_function(ctx, address)) {
+        const char* fname = _mcp_function_of(ctx, address, &entry);
+
+        if(fname) {
+            rd_scratch_putf(out, "%s is inside %s, not its entry: pass %s.",
+                            _mcp_format_address(ctx, address), fname, fname);
+        }
+        else {
+            rd_scratch_putf(out, "%s is not a function: make_function first.",
+                            _mcp_format_address(ctx, address));
+        }
+
+        return _mcp_reply(doc, out, true);
+    }
+
+    if(!rd_set_noreturn(ctx, address)) {
+        rd_scratch_putf(out, "Cannot mark %s as noreturn.",
+                        rd_get_name(ctx, address));
+        return _mcp_reply(doc, out, true);
+    }
+
+    // calls to it no longer fall through: the code after them must be redone
+    rd_reanalyze(ctx);
+    mcp_session_settle(ctx);
+
+    rd_scratch_putf(out, "Marked %s as noreturn", rd_get_name(ctx, address));
+    rd_scratch_puts(out, mcp_session_is_standalone()
+                             ? ", analysis updated."
+                             : ", reanalysis started in REDasm.");
     return _mcp_reply(doc, out, false);
 }

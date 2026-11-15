@@ -90,6 +90,27 @@
       }
     },
     {
+      "name": "load_project",
+      "description": "Load a REDasm project (.rdx), replacing the current file: the analysis comes back with every name, comment, type and patch saved in it. Projects can be in the allowed directories or in the working directory, where save_project writes them.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Absolute path of the .rdx project"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "save_project",
+      "description": "Save the open file and its analysis, with every name, comment, type and patch, as a REDasm project (.rdx) in the working directory. Returns the path for load_project.",
+      "x-context": true
+    },
+    {
       "name": "list_segments",
       "description": "List the segments of the open file: address range, size in bytes, permissions and name.",
       "x-context": true
@@ -187,8 +208,23 @@
       }
     },
     {
+      "name": "list_problems",
+      "description": "List the problems the analysis recorded: what it couldn't decode, follow or apply, and where. A good place to look for code that is missing or wrong. Supports filtering by message and paging.",
+      "x-context": true,
+      "x-paging": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "string",
+            "description": "Only problems whose message contains this text (case-insensitive)"
+          }
+        }
+      }
+    },
+    {
       "name": "get_name",
-      "description": "Describe an address: its name, or the function it falls inside, plus its segment and import/export status.",
+      "description": "The cheapest way to label an address: its name, or the function it falls inside, plus its segment and import/export status. For the instruction or data at the address, use get_address_details.",
       "x-context": true,
       "inputSchema": {
         "type": "object",
@@ -204,8 +240,8 @@
       }
     },
     {
-      "name": "get_address",
-      "description": "Find the address of a symbol by its exact name.",
+      "name": "find_name",
+      "description": "Find the address of a symbol by its exact name. The reverse of get_name.",
       "x-context": true,
       "inputSchema": {
         "type": "object",
@@ -239,8 +275,8 @@
       }
     },
     {
-      "name": "get_item",
-      "description": "Show the single item at an address as the listing does: an instruction, or a data item such as a string or a variable, with its size, bytes and the function it's in. An address inside an item shows the whole item.",
+      "name": "get_address_details",
+      "description": "What is at an address, as the listing shows it: the instruction or data item (a string, a variable), its size and bytes, its comment and the function it's in. An address inside an instruction or data item shows the whole of it. To only label an address, get_name is cheaper.",
       "x-context": true,
       "inputSchema": {
         "type": "object",
@@ -571,6 +607,45 @@
         "required": [
           "address",
           "type"
+        ]
+      }
+    },
+    {
+      "name": "reanalyze",
+      "description": "Run the analysis again over the whole program, keeping names, comments, types and patches. Useful after several changes that affect the code flow.",
+      "x-context": true
+    },
+    {
+      "name": "make_function",
+      "description": "Create a function at an address the analysis missed, for example a callback passed by pointer, and analyze its code.",
+      "x-context": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Hex address of the function's first instruction"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "set_noreturn",
+      "description": "Mark a function as never returning, like exit or abort: calls to it stop the code flow, and the analysis is updated.",
+      "x-context": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Hex address of the function's entry, or its name"
+          }
+        },
+        "required": [
+          "address"
         ]
       }
     }
