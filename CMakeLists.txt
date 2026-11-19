@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(redasm-mcp C)
+project(redasm-mcp-plugin C)
 
 if(WIN32)
     set(REDASM_INSTALL_PLUGINS "plugins/mcp")

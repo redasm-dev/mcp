@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(redasm_mcp C)
+project(redasm-mcp C)
 
 if(NOT TARGET redasm::redasm)
     find_package(redasm REQUIRED)
