@@ -43,6 +43,7 @@ cmake --install build
 ```toml
 plugin_dirs = ["/usr/lib/redasm/plugins"]
 kb_dirs = ["/home/me/redasm/kb"]
+network = false # e.g. PDB downloads, off by default
 
 [mcp]
 allowed_dirs = ["/home/me/samples"]

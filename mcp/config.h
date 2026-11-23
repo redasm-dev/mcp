@@ -7,6 +7,7 @@ typedef struct McpConfig {
     const char** plugin_dirs; // NULL terminated
     const char** kb_dirs;     // NULL terminated
     const char* settings;
+    bool network;
 } McpConfig;
 
 bool mcp_config_load(McpConfig* self, const char* filepath);

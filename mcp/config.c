@@ -14,6 +14,11 @@ static const RDDatumSchema MCP_CONFIG_SCHEMA[] = {
         .array_type = &RD_DATUM_ITEM_STRING,
     },
     {
+        .key = "network",
+        .kind = RD_DATUM_BOOL,
+        .optional = true,
+    },
+    {
         .key = "settings",
         .kind = RD_DATUM_STRING,
         .optional = true,
@@ -46,6 +51,7 @@ bool mcp_config_load(McpConfig* self, const char* filepath) {
         _mcp_config_strings(rd_datum_get_array(root, "plugin_dirs"));
     self->kb_dirs = _mcp_config_strings(rd_datum_get_array(root, "kb_dirs"));
     self->settings = rd_datum_get_str(root, "settings");
+    rd_datum_get_bool(root, "network", &self->network); // off when missing
     return true;
 }
 

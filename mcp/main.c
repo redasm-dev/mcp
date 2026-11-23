@@ -164,6 +164,7 @@ int main(int argc, char* argv[]) {
     RDInitParams params = {
         .kb_paths = config.kb_dirs,
         .settings_filepath = config.settings ? config.settings : argv[2],
+        .network_enabled = config.network,
     };
 
     rd_init(&params);
