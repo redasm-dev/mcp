@@ -2,12 +2,9 @@ cmake_minimum_required(VERSION 3.20)
 
 project(redasm-mcp C)
 
-include(GNUInstallDirs)
-
 if(NOT TARGET redasm::redasm)
     find_package(redasm REQUIRED)
 endif()
-
 
 add_executable(${PROJECT_NAME} main.c)
 
@@ -28,6 +25,4 @@ target_link_libraries(${PROJECT_NAME}
         redasm::redasm
 )
 
-install(TARGETS ${PROJECT_NAME}
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
+redasm_install_executable(${PROJECT_NAME})
