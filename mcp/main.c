@@ -1,18 +1,32 @@
 #include "config.h"
 #include "plugins.h"
 #include <errno.h>
-#include <poll.h>
 #include <redasm/redasm.h>
-#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#define read(fd, p, n) _read(fd, p, (unsigned)(n))
+#define write(fd, p, n) _write(fd, p, (unsigned)(n))
+#define dup _dup
+#define dup2 _dup2
+#define STDIN_FILENO 0
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+typedef int mcp_ssize; // _read/_write return int
+#else
+#include <signal.h>
 #include <unistd.h>
+typedef ssize_t mcp_ssize;
+#endif
 
 #define READ_SIZE 4096
+#define WRITE_CHUNK (1u << 30) // _write takes an unsigned int
 #define MAX_LINE_SIZE (16ull * 1024ull * 1024ull)
-#define POLL_READY (POLLIN | POLLHUP | POLLERR | POLLNVAL)
 
 typedef struct LineVect {
     char* data;
@@ -27,7 +41,7 @@ typedef struct McpHost {
 
 static bool write_all(int fd, const char* p, size_t n) {
     while(n) {
-        ssize_t w = write(fd, p, n);
+        mcp_ssize w = write(fd, p, n < WRITE_CHUNK ? n : WRITE_CHUNK);
 
         if(w < 0 && errno == EINTR) continue;
         if(w <= 0) return false;
@@ -99,32 +113,19 @@ static bool line_feed(McpHost* host, LineVect* lines, const char* data,
 }
 
 static int mcp_run(McpHost* host) {
+#if !defined(_WIN32)
     // a closed client must be a write error, not a silent death by signal
     signal(SIGPIPE, SIG_IGN);
+#endif
 
     fputs("[REDasm MCP] ready\n", stderr);
 
-    struct pollfd in = {.fd = STDIN_FILENO, .events = POLLIN};
     LineVect lines = {0};
     char buffer[READ_SIZE];
     int res = EXIT_SUCCESS;
-    RDWorkerStatus status = {0};
 
     for(;;) {
-        // if(host->analyzing)
-        // host->analyzing = rd_step(host->context, &status);
-        int r = poll(&in, 1, -1);
-
-        if(r < 0) {
-            if(errno == EINTR) continue;
-            fputs("[REDasm MCP] poll() failed\n", stderr);
-            res = EXIT_FAILURE;
-            break;
-        }
-
-        if(!(in.revents & POLL_READY)) continue;
-
-        ssize_t n = read(STDIN_FILENO, buffer, sizeof(buffer));
+        mcp_ssize n = read(STDIN_FILENO, buffer, sizeof(buffer));
 
         if(n < 0 && errno == EINTR) continue;
         if(n <= 0) break; // the client closed stdin: time to exit
@@ -153,6 +154,12 @@ int main(int argc, char* argv[]) {
     // anything printing to stdout from now on lands on stderr
     int out = dup(STDOUT_FILENO);
     dup2(STDERR_FILENO, STDOUT_FILENO);
+
+#if defined(_WIN32)
+    // text mode would turn "\n" into "\r\n" and stop reading at 0x1A
+    _setmode(STDIN_FILENO, _O_BINARY);
+    _setmode(out, _O_BINARY);
+#endif
 
     RDInitParams params = {
         .kb_paths = config.kb_dirs,
